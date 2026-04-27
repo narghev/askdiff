@@ -1,0 +1,18 @@
+{
+  "name": "@askdiff/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "UI-agnostic WebSocket server for askdiff.",
+  "main": "dist/index.js",
+  "dependencies": {
+    "@askdiff/protocol": "workspace:*",
+    "ws": "^8.20.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
