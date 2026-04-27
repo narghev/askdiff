@@ -34,7 +34,7 @@
     },
     {
       // Loosen type-checked rules on plain JS files (this config file itself, etc.)
-      files: ["**/*.js", "**/*.mjs"],
+      files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
       ...tseslint.configs.disableTypeChecked,
     },
   );
