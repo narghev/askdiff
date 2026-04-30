@@ -25,6 +25,7 @@ export async function* streamAnswer(
   const child = spawn("claude", args, {
     cwd: params.cwd,
     stdio: ["pipe", "pipe", "pipe"],
+    env: childEnv(),
   });
 
   const onAbort = () => {
@@ -46,6 +47,18 @@ export async function* streamAnswer(
 
   child.stdin.end(prompt);
 
+  // The CLI reports API errors (billing, auth, invalid session, …) as a
+  // `result` event with `is_error: true` — usually before exit. Capture
+  // the message so the WS error is actionable instead of "exited 1".
+  let apiError: string | null = null;
+  const handleLine = (line: string): string | null => {
+    const delta = extractTextDelta(line);
+    if (delta !== null) return delta;
+    const err = extractApiError(line);
+    if (err !== null) apiError = err;
+    return null;
+  };
+
   try {
     child.stdout.setEncoding("utf8");
     let buffer = "";
@@ -55,18 +68,21 @@ export async function* streamAnswer(
       while (newline >= 0) {
         const line = buffer.slice(0, newline);
         buffer = buffer.slice(newline + 1);
-        const delta = extractTextDelta(line);
+        const delta = handleLine(line);
         if (delta !== null) yield delta;
         newline = buffer.indexOf("\n");
       }
     }
     if (buffer.length > 0) {
-      const delta = extractTextDelta(buffer);
+      const delta = handleLine(buffer);
       if (delta !== null) yield delta;
     }
 
     const { code } = await exitPromise;
     if (params.signal.aborted) return;
+    if (apiError !== null) {
+      throw new ClaudeCliError(apiError);
+    }
     if (code !== 0) {
       const stderr = stderrChunks.join("").trim().slice(-500);
       throw new ClaudeCliError(
@@ -78,6 +94,17 @@ export async function* streamAnswer(
     if (!child.killed) child.kill("SIGTERM");
   }
 }
+
+// The parent Claude Code session is auth'd via subscription, but
+// `ANTHROPIC_API_KEY` (or `ANTHROPIC_AUTH_TOKEN`) in the env makes the
+// spawned CLI silently switch to API billing. Strip those so the
+// subprocess falls back to whichever cached auth the user already has.
+const childEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  delete env["ANTHROPIC_API_KEY"];
+  delete env["ANTHROPIC_AUTH_TOKEN"];
+  return env;
+};
 
 const buildArgs = (sessionId: string, model: string | undefined): string[] => {
   const args = [
@@ -92,7 +119,11 @@ const buildArgs = (sessionId: string, model: string | undefined): string[] => {
 }
 
 const buildPrompt = (ask: AskMessage): string => {
-  return `I'm reviewing your changes in a diff viewer. Your prior edits in this session are already in your context — only verify with Read or git if you suspect external modifications.
+  return `You are answering a question in askdiff, a read-only code-review diff viewer. This is a discussion turn, not an implementation turn.
+
+**Do not modify the code.** Do not call Edit, Write, NotebookEdit, MultiEdit, or any Bash command that mutates the filesystem (no \`sed -i\`, \`>\`, \`mv\`, \`rm\`, \`git commit\`, \`git checkout\`, etc.). If the user asks you to "fix", "apply", "change", "refactor", "rename", "implement", or otherwise edit something, describe what the change should look like in your reply (prose, or a code block they can copy) but do not perform it. The user will apply changes themselves outside askdiff if they want to act on your suggestion.
+
+Read-only inspection (Read, Grep, Glob, git read commands) is fine when needed, but your prior edits in this session are already in your context, so usually you can answer from memory.
 
 Question about \`${ask.file}\` lines ${ask.from_line}-${ask.to_line}:
 
@@ -122,6 +153,24 @@ const extractTextDelta = (line: string): string | null => {
   if (delta["type"] !== "text_delta") return null;
   const text = delta["text"];
   return typeof text === "string" ? text : null;
+};
+
+const extractApiError = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return null;
+  let obj: unknown;
+  try {
+    obj = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (!isRecord(obj)) return null;
+  if (obj["type"] !== "result") return null;
+  if (obj["is_error"] !== true) return null;
+  const result = obj["result"];
+  if (typeof result !== "string" || result.length === 0) return null;
+  const status = obj["api_error_status"];
+  return typeof status === "number" ? `${result} (api ${String(status)})` : result;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

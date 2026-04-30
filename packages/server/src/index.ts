@@ -104,6 +104,13 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
+function readIdleShutdownMs(): number {
+  const raw = process.env.ASKDIFF_IDLE_SHUTDOWN_MS;
+  if (raw === undefined) return 5 * 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 5 * 60_000;
+}
+
 async function main(): Promise<void> {
   const cwd = process.env.ASKDIFF_PROJECT_CWD || process.cwd();
   const port = parseInt(process.env.PORT || '0') || DEFAULT_PORT;
@@ -118,6 +125,28 @@ async function main(): Promise<void> {
 
   const wss = new WebSocketServer({ port });
 
+  // Idle shutdown: when the last client disconnects, exit after this many
+  // ms of inactivity. Set ASKDIFF_IDLE_SHUTDOWN_MS=0 to disable.
+  const idleShutdownMs = readIdleShutdownMs();
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const armIdleTimer = () => {
+    clearIdleTimer();
+    if (idleShutdownMs <= 0) return;
+    idleTimer = setTimeout(() => {
+      console.log(
+        `no clients for ${String(Math.round(idleShutdownMs / 1000))}s; shutting down.`,
+      );
+      wss.close(() => process.exit(0));
+      setTimeout(() => process.exit(1), 5000).unref();
+    }, idleShutdownMs);
+  };
+
   wss.on("listening", () => {
     console.log(`${PROJECT_NAME} server listening on ws://localhost:${port}`);
     console.log(`  protocol: ${PROTOCOL_VERSION}`);
@@ -125,6 +154,14 @@ async function main(): Promise<void> {
     console.log(
       `  claude session: ${state.claudeSessionId ?? "(none — send set_session before asking)"}`,
     );
+    if (idleShutdownMs > 0) {
+      console.log(
+        `  idle shutdown: ${String(Math.round(idleShutdownMs / 1000))}s after last client`,
+      );
+    }
+    // Start the timer immediately so a server that nobody ever connects
+    // to doesn't linger forever.
+    armIdleTimer();
   });
 
   wss.on("error", (err: NodeJS.ErrnoException) => {
@@ -140,6 +177,7 @@ async function main(): Promise<void> {
     const connectionId = randomUUID();
     const controllers = new Map<string, AbortController>();
 
+    clearIdleTimer();
     state.clients.add(ws);
 
     send(ws, {
@@ -195,6 +233,7 @@ async function main(): Promise<void> {
       for (const controller of controllers.values()) controller.abort();
       controllers.clear();
       state.clients.delete(ws);
+      if (state.clients.size === 0) armIdleTimer();
     });
 
     ws.on("error", (err) => {
