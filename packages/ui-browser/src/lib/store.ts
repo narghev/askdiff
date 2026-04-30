@@ -43,6 +43,13 @@ type Store = {
   diff?: { raw: string; files: DiffFile[] };
   selectedFile?: string;
 
+  // per-file UI state (path → flag)
+  fileViewed: Record<string, boolean>;
+  fileCollapsed: Record<string, boolean>;
+
+  // bumped to ask DiffPane to scroll a file into view
+  scrollRequest?: { path: string; nonce: number };
+
   // asks
   asks: Record<string, Ask>;
   askOrder: string[];
@@ -62,6 +69,9 @@ type Store = {
   setSessionId: (sid: string | null) => void;
   setDiff: (raw: string, files: DiffFile[]) => void;
   selectFile: (path: string) => void;
+  toggleViewed: (path: string) => void;
+  toggleCollapsed: (path: string) => void;
+  requestScrollTo: (path: string) => void;
   appendChunk: (askId: string, delta: string) => void;
   finishAsk: (askId: string, outcome: "done" | "error", message?: string) => void;
   pushToast: (message: string) => void;
@@ -78,6 +88,17 @@ type Store = {
   startAsk: (input: AskInput) => string;
   cancel: (askId: string) => void;
   setSession: (sid: string) => void;
+};
+
+const pickKnown = (
+  src: Record<string, boolean>,
+  known: Set<string>,
+): Record<string, boolean> => {
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (known.has(k)) out[k] = v;
+  }
+  return out;
 };
 
 const newId = () =>
@@ -101,6 +122,8 @@ export const useStore = create<Store>((set, get) => ({
   asks: {},
   askOrder: [],
   openAnchors: {},
+  fileViewed: {},
+  fileCollapsed: {},
   toasts: [],
   _send: () => {
     get().pushToast("Not connected to askdiff server");
@@ -113,7 +136,8 @@ export const useStore = create<Store>((set, get) => ({
   setSessionId: (sid) => set({ sessionId: sid }),
 
   setDiff: (raw, files) => {
-    const prev = get().selectedFile;
+    const s = get();
+    const prev = s.selectedFile;
     const stillExists = prev !== undefined && files.some((f) => f.path === prev);
     const next: Partial<Store> = { diff: { raw, files } };
     if (stillExists) {
@@ -122,10 +146,43 @@ export const useStore = create<Store>((set, get) => ({
       const first = files[0]?.path;
       if (first !== undefined) next.selectedFile = first;
     }
+    // Drop per-file UI flags for files no longer in the diff. Preserving
+    // entries for files still present means review progress survives the
+    // server re-sending the same diff (e.g. on reconnect).
+    const paths = new Set(files.map((f) => f.path));
+    next.fileViewed = pickKnown(s.fileViewed, paths);
+    next.fileCollapsed = pickKnown(s.fileCollapsed, paths);
     set(next);
   },
 
   selectFile: (path) => set({ selectedFile: path }),
+
+  toggleViewed: (path) =>
+    set((s) => {
+      const willBeViewed = !(s.fileViewed[path] ?? false);
+      return {
+        fileViewed: { ...s.fileViewed, [path]: willBeViewed },
+        // Match GitHub: marking a file viewed also collapses it.
+        // Unmarking does not auto-expand — the user can do that explicitly.
+        fileCollapsed: willBeViewed
+          ? { ...s.fileCollapsed, [path]: true }
+          : s.fileCollapsed,
+      };
+    }),
+
+  toggleCollapsed: (path) =>
+    set((s) => ({
+      fileCollapsed: {
+        ...s.fileCollapsed,
+        [path]: !(s.fileCollapsed[path] ?? false),
+      },
+    })),
+
+  requestScrollTo: (path) =>
+    set((s) => ({
+      selectedFile: path,
+      scrollRequest: { path, nonce: (s.scrollRequest?.nonce ?? 0) + 1 },
+    })),
 
   appendChunk: (askId, delta) =>
     set((s) => {

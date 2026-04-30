@@ -103,43 +103,32 @@ export const FilePane = ({ file }: { file: FileData }) => {
   );
 
   return (
-    <section className="relative mb-6 rounded-md border bg-card">
-      <header className="flex items-center justify-between border-b px-3 py-2">
-        <div className="font-mono text-xs">
-          <span className="text-muted-foreground">{file.type}</span>
-          <span className="ml-2">{path}</span>
-        </div>
-        <div className="text-[0.7rem] text-muted-foreground">
-          Click a line number to comment, or click-and-drag for a range.
-        </div>
-      </header>
-      <div className="overflow-x-auto">
-        <Diff
-          viewType="split"
-          diffType={file.type}
-          hunks={file.hunks}
-          tokens={tokens}
-          widgets={widgets}
-          selectedChanges={selectedKeys}
-          gutterEvents={{
-            onMouseDown: ({ change }, event) => {
-              if (!change) return;
-              // Prevent the browser's text-selection drag from kicking in.
-              event.preventDefault();
-              const key = getChangeKey(change);
-              setDrag({ phase: "dragging", start: key, end: key });
-            },
-            onMouseEnter: ({ change }) => {
-              if (!change) return;
-              const key = getChangeKey(change);
-              setDrag((d) => (d.phase === "dragging" ? { ...d, end: key } : d));
-            },
-          }}
-        >
-          {(hunks) => hunks.map((h, idx) => <Hunk key={idx} hunk={h} />)}
-        </Diff>
-      </div>
-    </section>
+    <div className="overflow-x-auto">
+      <Diff
+        viewType="split"
+        diffType={file.type}
+        hunks={file.hunks}
+        tokens={tokens}
+        widgets={widgets}
+        selectedChanges={selectedKeys}
+        gutterEvents={{
+          onMouseDown: ({ change }, event) => {
+            if (!change) return;
+            // Prevent the browser's text-selection drag from kicking in.
+            event.preventDefault();
+            const key = getChangeKey(change);
+            setDrag({ phase: "dragging", start: key, end: key });
+          },
+          onMouseEnter: ({ change }) => {
+            if (!change) return;
+            const key = getChangeKey(change);
+            setDrag((d) => (d.phase === "dragging" ? { ...d, end: key } : d));
+          },
+        }}
+      >
+        {(hunks) => hunks.map((h, idx) => <Hunk key={idx} hunk={h} />)}
+      </Diff>
+    </div>
   );
 };
 
