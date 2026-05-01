@@ -3,8 +3,9 @@ user-invocable: true
 allowed-tools: Bash
 ---
 
-Stop everything `/askdiff` started: the WebSocket server, the Vite dev
-server, and any pnpm/esbuild helpers spawned along the way.
+Stop everything `/askdiff` and `/askdiff-dev` started: the WebSocket
+server, the Vite dev server (when `/askdiff-dev` was used), and any
+pnpm/esbuild helpers spawned along the way.
 
 Run this as a single Bash command:
 
@@ -13,7 +14,7 @@ set +e
 
 found_any=false
 
-# 1. Vite tracked by the pid file the launch skill writes.
+# 1. Vite tracked by the pid file `/askdiff-dev` writes (graceful kill first).
 ui_pid_file=/tmp/askdiff-ui.pid
 if [ -f "$ui_pid_file" ]; then
   prev_pid=$(cat "$ui_pid_file" 2>/dev/null)

@@ -5,20 +5,23 @@ import {
 } from "@askdiff/protocol";
 import { useStore } from "./store";
 
-const DEFAULT_PORT = 7837;
+const DEFAULT_SERVER_URL = "ws://localhost:7837";
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 const PING_INTERVAL_MS = 25000;
 
-const resolvePort = (): number => {
+const wsUrl = (): string => {
   const params = new URLSearchParams(window.location.search);
-  const raw = params.get("port");
-  const n = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_PORT;
-};
-
-const wsUrl = () => {
-  const port = resolvePort();
-  return `ws://localhost:${String(port)}`;
+  const raw = params.get("server");
+  if (!raw) return DEFAULT_SERVER_URL;
+  if (!/^wss?:\/\//.test(raw)) {
+    useStore
+      .getState()
+      .pushToast(
+        `Ignoring invalid ?server= value (expected ws:// or wss://): ${raw}`,
+      );
+    return DEFAULT_SERVER_URL;
+  }
+  return raw;
 };
 
 type Connection = {
