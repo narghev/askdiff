@@ -1,0 +1,54 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write   # required for npm Trusted Publishing + provenance
+
+concurrency:
+  group: publish
+  cancel-in-progress: false   # never cancel mid-publish
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm test
+
+      - name: Sync package version with release tag
+        # Release tag is the source of truth — strip the leading `v` and
+        # write it into packages/cli/package.json before publish so the
+        # tarball matches the GitHub release.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd packages/cli
+          npm version "$version" --no-git-tag-version --allow-same-version
+
+      - run: pnpm run build
+
+      - name: Publish to npm
+        # No NPM_TOKEN — auth is via OIDC (Trusted Publisher must be
+        # configured for `askdiff` on npmjs.com pointing at this repo +
+        # workflow). The `id-token: write` permission above is what lets
+        # the runner exchange its OIDC token for an npm publish token.
+        working-directory: packages/cli
+        run: npm publish --access public --provenance
