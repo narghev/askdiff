@@ -126,7 +126,7 @@ export const FilePane = ({ file }: { file: FileData }) => {
           },
         }}
       >
-        {(hunks) => hunks.map((h, idx) => <Hunk key={idx} hunk={h} />)}
+        {(hunks) => hunks.map((h) => <Hunk key={h.newStart} hunk={h} />)}
       </Diff>
     </div>
   );

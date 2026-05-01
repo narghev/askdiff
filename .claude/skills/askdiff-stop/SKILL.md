@@ -1,4 +1,6 @@
 ---
+name: askdiff-stop
+description: Stop the askdiff WebSocket server and Vite dev server.
 user-invocable: true
 allowed-tools: Bash
 ---

@@ -137,7 +137,7 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
     clients: new Set(),
   };
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1_048_576 });
 
   const ownsHttpServer = !opts.httpServer;
   const httpServer: HttpServer =

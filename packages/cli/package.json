@@ -6,11 +6,24 @@
   "bin": { "askdiff": "./dist/index.js" },
   "files": ["dist", "README.md"],
   "license": "MIT",
+  "author": "narghev",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/narghev/askdiff.git"
   },
   "homepage": "https://github.com/narghev/askdiff",
+  "bugs": { "url": "https://github.com/narghev/askdiff/issues" },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "anthropic",
+    "skill",
+    "diff",
+    "code-review",
+    "review",
+    "websocket",
+    "ai"
+  ],
   "engines": { "node": ">=18" },
   "dependencies": {
     "commander": "^14.0.0",

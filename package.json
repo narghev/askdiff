@@ -13,9 +13,12 @@
     "lint:fix": "eslint --fix .",
     "test": "jest",
     "test:watch": "jest --watch",
-    "build": "tsx scripts/build.ts",
-    "release:patch": "pnpm run build && cd packages/cli && npm version patch && npm publish --access public",
-    "release:minor": "pnpm run build && cd packages/cli && npm version minor && npm publish --access public"
+    "build": "tsx scripts/build.ts"
+  },
+  "pnpm": {
+    "overrides": {
+      "prismjs": "^1.30.0"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

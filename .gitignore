@@ -7,7 +7,12 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .env
+.env.*
 .env.local
+
+coverage/
+.vscode/
+.idea/
 
 .claude/settings.local.json
 

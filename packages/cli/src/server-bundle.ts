@@ -13,6 +13,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const UI_DIR = resolve(__dirname, "ui");
 const INDEX_HTML = join(UI_DIR, "index.html");
 
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src ws://localhost:* wss://localhost:*",
+};
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -69,7 +77,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   const ext = extname(filePath).toLowerCase();
   const type = MIME[ext] ?? "application/octet-stream";
-  res.writeHead(200, { "Content-Type": type });
+  res.writeHead(200, { "Content-Type": type, ...SECURITY_HEADERS });
   if (req.method === "HEAD") {
     res.end();
     return;

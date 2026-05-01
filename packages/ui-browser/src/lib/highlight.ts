@@ -113,6 +113,9 @@ const ensure = (id: string): Promise<void> | null => {
     p = load().then((m) => {
       refractor.register(m.default);
     });
+    // Clear on failure so the next caller retries rather than getting a
+    // permanently cached rejection.
+    p.catch(() => inflight.delete(id));
     inflight.set(id, p);
   }
   return p;
@@ -131,7 +134,11 @@ const resolve = async (alias: string): Promise<Resolved | null> => {
   const id = resolveId(alias);
   const p = ensure(id);
   if (!p) return null;
-  await p;
+  try {
+    await p;
+  } catch {
+    return null;
+  }
   return { refractor, language: id };
 };
 

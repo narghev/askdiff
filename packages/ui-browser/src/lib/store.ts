@@ -71,7 +71,6 @@ type Store = {
   setProject: (p: string) => void;
   setSessionId: (sid: string | null) => void;
   setDiff: (raw: string, files: DiffFile[]) => void;
-  selectFile: (path: string) => void;
   toggleViewed: (path: string) => void;
   toggleCollapsed: (path: string) => void;
   toggleTreeNode: (path: string) => void;
@@ -159,8 +158,6 @@ export const useStore = create<Store>((set, get) => ({
     next.fileCollapsed = pickKnown(s.fileCollapsed, paths);
     set(next);
   },
-
-  selectFile: (path) => set({ selectedFile: path }),
 
   toggleViewed: (path) =>
     set((s) => {

@@ -6,10 +6,8 @@
 // runs its own bootstrap; it does not invoke this file.
 import { PROTOCOL_VERSION } from "@askdiff/protocol";
 import { startServer, WS_PATH } from "./index";
-import { DEFAULT_PORT, PROJECT_NAME } from "./util/constants";
+import { DEFAULT_IDLE_SHUTDOWN_MS, DEFAULT_PORT, PROJECT_NAME } from "./util/constants";
 import { resolveInitialSessionId } from "./util/session";
-
-const DEFAULT_IDLE_SHUTDOWN_MS = 5 * 60_000;
 
 function readIdleShutdownMs(): number {
   const raw = process.env.ASKDIFF_IDLE_SHUTDOWN_MS;
@@ -19,8 +17,8 @@ function readIdleShutdownMs(): number {
 }
 
 async function main(): Promise<void> {
-  const cwd = process.env.ASKDIFF_PROJECT_CWD || process.cwd();
-  const port = parseInt(process.env.PORT || "0") || DEFAULT_PORT;
+  const cwd = process.env["ASKDIFF_PROJECT_CWD"] ?? process.cwd();
+  const port = Number.parseInt(process.env["PORT"] ?? "0", 10) || DEFAULT_PORT;
   const idleShutdownMs = readIdleShutdownMs();
 
   const initialSession = await resolveInitialSessionId(cwd);
