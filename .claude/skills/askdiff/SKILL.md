@@ -35,7 +35,7 @@ if [ -f "$session_file" ]; then
 fi
 
 # 3. Start the WS server (idempotent: each invocation gets its own port).
-cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/index.ts > /tmp/askdiff.log 2>&1 &
+cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
 disown
 sleep 1.5
 head -5 /tmp/askdiff.log

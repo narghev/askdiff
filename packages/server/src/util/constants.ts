@@ -7,3 +7,6 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 export const MAX_DIFF_BUFFER = 64 * 1024 * 1024;
 export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+export const DEFAULT_HOST = "127.0.0.1";
+export const DEFAULT_IDLE_SHUTDOWN_MS = 5 * 60_000;

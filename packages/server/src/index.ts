@@ -1,21 +1,45 @@
 import { randomUUID } from "node:crypto";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server as HttpServer,
+} from "node:http";
+import type { Socket } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClaudeCliError, streamAnswer } from "./claude";
 import { getDiff } from "./util/diff";
 import { GitError } from "./util/git";
 import { PROTOCOL_VERSION, parseClientMessage, type AskMessage } from "@askdiff/protocol";
-import { DEFAULT_PORT, PROJECT_NAME } from "./util/constants";
-import {
-  isValidSessionId,
-  resolveInitialSessionId,
-  sessionExists,
-} from "./util/session";
+import { DEFAULT_HOST, DEFAULT_IDLE_SHUTDOWN_MS, PROJECT_NAME } from "./util/constants";
+import { isValidSessionId, sessionExists } from "./util/session";
 import { broadcast, send } from "./util/ws";
+
+export const WS_PATH = "/ws";
 
 export interface ServerState {
   cwd: string;
   claudeSessionId: string | null;
   clients: Set<WebSocket>;
+}
+
+export interface StartServerOptions {
+  cwd: string;
+  sessionId: string | null;
+  // Standalone mode: pass `port` (and optionally `host`) and the server
+  // creates its own HTTP listener.
+  port?: number;
+  host?: string;
+  // Mount mode: pass an already-constructed HTTP server (e.g. one that
+  // also serves static files) and the WebSocket upgrade is attached to it.
+  // When set, `port` and `host` are ignored — the caller owns lifecycle.
+  httpServer?: HttpServer;
+  idleShutdownMs?: number;
+  onListening?: (port: number) => void;
+}
+
+export interface ServerHandle {
+  port: number;
+  close: () => Promise<void>;
 }
 
 async function sendDiff(ws: WebSocket, cwd: string): Promise<void> {
@@ -104,30 +128,29 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-function readIdleShutdownMs(): number {
-  const raw = process.env.ASKDIFF_IDLE_SHUTDOWN_MS;
-  if (raw === undefined) return 5 * 60_000;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : 5 * 60_000;
-}
-
-async function main(): Promise<void> {
-  const cwd = process.env.ASKDIFF_PROJECT_CWD || process.cwd();
-  const port = parseInt(process.env.PORT || '0') || DEFAULT_PORT;
-
-  const initialSession = await resolveInitialSessionId(cwd);
+export async function startServer(opts: StartServerOptions): Promise<ServerHandle> {
+  const idleShutdownMs = opts.idleShutdownMs ?? DEFAULT_IDLE_SHUTDOWN_MS;
 
   const state: ServerState = {
-    cwd,
-    claudeSessionId: initialSession,
+    cwd: opts.cwd,
+    claudeSessionId: opts.sessionId,
     clients: new Set(),
   };
 
-  const wss = new WebSocketServer({ port });
+  const wss = new WebSocketServer({ noServer: true });
+
+  const ownsHttpServer = !opts.httpServer;
+  const httpServer: HttpServer =
+    opts.httpServer ??
+    createHttpServer((_req, res) => {
+      // Standalone mode: this HTTP server only exists to host the WS
+      // upgrade. Any actual GET request gets a 404.
+      res.statusCode = 404;
+      res.end();
+    });
 
   // Idle shutdown: when the last client disconnects, exit after this many
-  // ms of inactivity. Set ASKDIFF_IDLE_SHUTDOWN_MS=0 to disable.
-  const idleShutdownMs = readIdleShutdownMs();
+  // ms of inactivity. Set to 0 to disable.
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   const clearIdleTimer = () => {
     if (idleTimer) {
@@ -142,36 +165,15 @@ async function main(): Promise<void> {
       console.log(
         `no clients for ${String(Math.round(idleShutdownMs / 1000))}s; shutting down.`,
       );
-      wss.close(() => process.exit(0));
+      // Best-effort close, then exit. The CLI/script entry point relies on
+      // this to release the port; tests that use this library directly can
+      // pass `idleShutdownMs: 0` to opt out.
+      wss.close();
+      if (ownsHttpServer) httpServer.close();
+      setTimeout(() => process.exit(0), 100).unref();
       setTimeout(() => process.exit(1), 5000).unref();
     }, idleShutdownMs);
   };
-
-  wss.on("listening", () => {
-    console.log(`${PROJECT_NAME} server listening on ws://localhost:${port}`);
-    console.log(`  protocol: ${PROTOCOL_VERSION}`);
-    console.log(`  project:  ${cwd}`);
-    console.log(
-      `  claude session: ${state.claudeSessionId ?? "(none — send set_session before asking)"}`,
-    );
-    if (idleShutdownMs > 0) {
-      console.log(
-        `  idle shutdown: ${String(Math.round(idleShutdownMs / 1000))}s after last client`,
-      );
-    }
-    // Start the timer immediately so a server that nobody ever connects
-    // to doesn't linger forever.
-    armIdleTimer();
-  });
-
-  wss.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`port ${port} is already in use — set PORT to a free port and retry`);
-      process.exit(1);
-    }
-    console.error("server error:", err);
-    process.exit(1);
-  });
 
   wss.on("connection", (ws) => {
     const connectionId = randomUUID();
@@ -183,12 +185,12 @@ async function main(): Promise<void> {
     send(ws, {
       type: "hello",
       protocol: PROTOCOL_VERSION,
-      project: cwd,
+      project: opts.cwd,
     });
 
     send(ws, { type: "session", session_id: state.claudeSessionId });
 
-    void sendDiff(ws, cwd);
+    void sendDiff(ws, opts.cwd);
 
     ws.on("message", (data) => {
       const text = Buffer.isBuffer(data)
@@ -218,7 +220,7 @@ async function main(): Promise<void> {
           return;
         }
         case "diff_request":
-          void sendDiff(ws, cwd);
+          void sendDiff(ws, opts.cwd);
           return;
         case "ping":
           send(ws, { type: "pong" });
@@ -241,16 +243,67 @@ async function main(): Promise<void> {
     });
   });
 
-  const shutdown = (signal: string) => {
-    console.log(`\n${signal} received, shutting down.`);
-    wss.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 5000).unref();
+  const upgradeHandler = (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    if (req.url !== WS_PATH) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
   };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  httpServer.on("upgrade", upgradeHandler);
+
+  let resolvedPort: number;
+  if (ownsHttpServer) {
+    const desiredPort = opts.port ?? 0;
+    const host = opts.host ?? DEFAULT_HOST;
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        httpServer.off("listening", onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        httpServer.off("error", onError);
+        resolve();
+      };
+      httpServer.once("error", onError);
+      httpServer.once("listening", onListening);
+      httpServer.listen(desiredPort, host);
+    });
+    const addr = httpServer.address();
+    if (addr === null || typeof addr === "string") {
+      throw new Error("httpServer.address() returned unexpected value");
+    }
+    resolvedPort = addr.port;
+  } else {
+    const addr = httpServer.address();
+    if (addr === null || typeof addr === "string") {
+      throw new Error(
+        "httpServer must be listening before being passed to startServer()",
+      );
+    }
+    resolvedPort = addr.port;
+  }
+
+  opts.onListening?.(resolvedPort);
+  // Arm the idle timer immediately so a server with zero connects also retires.
+  armIdleTimer();
+
+  return {
+    port: resolvedPort,
+    close: async () => {
+      clearIdleTimer();
+      httpServer.off("upgrade", upgradeHandler);
+      await new Promise<void>((resolve) => {
+        wss.close(() => resolve());
+      });
+      if (ownsHttpServer) {
+        await new Promise<void>((resolve) => {
+          httpServer.close(() => resolve());
+        });
+      }
+    },
+  };
 }
 
-main().catch((err: unknown) => {
-  console.error("fatal:", err);
-  process.exit(1);
-});

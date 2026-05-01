@@ -29,7 +29,7 @@ fi
 # 2. Anything whose command line mentions our workspace packages —
 #    pnpm filters (`@askdiff/server`, `@askdiff/ui-browser`), the tsx-run
 #    server entry, and the Vite binary inside the ui-browser package.
-patterns='@askdiff/(server|ui-browser)|packages/(server/src/index\.ts|ui-browser/[^ ]*vite)'
+patterns='@askdiff/(server|ui-browser)|packages/(server/src/(main|index)\.ts|ui-browser/[^ ]*vite)'
 pids=$(pgrep -f "$patterns" 2>/dev/null | sort -u)
 
 if [ -n "$pids" ]; then
