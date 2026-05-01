@@ -13,5 +13,15 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
+    proxy: {
+      // The UI always connects to the same origin's `/ws`. In dev, Vite
+      // forwards that to the askdiff WS server. The `/askdiff-dev` skill
+      // sets ASKDIFF_DEV_WS_TARGET to the actual chosen port.
+      "/ws": {
+        target: process.env["ASKDIFF_DEV_WS_TARGET"] ?? "ws://localhost:7837",
+        ws: true,
+        changeOrigin: false,
+      },
+    },
   },
 });

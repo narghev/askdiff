@@ -5,23 +5,15 @@ import {
 } from "@askdiff/protocol";
 import { useStore } from "./store";
 
-const DEFAULT_SERVER_URL = "ws://localhost:7837";
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 const PING_INTERVAL_MS = 25000;
 
+// Same-origin WS URL. In production the Node server hosts both the UI
+// and the WebSocket on one port; in dev Vite proxies `/ws` to the
+// askdiff server (configured via `ASKDIFF_DEV_WS_TARGET` in vite.config).
 const wsUrl = (): string => {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get("server");
-  if (!raw) return DEFAULT_SERVER_URL;
-  if (!/^wss?:\/\//.test(raw)) {
-    useStore
-      .getState()
-      .pushToast(
-        `Ignoring invalid ?server= value (expected ws:// or wss://): ${raw}`,
-      );
-    return DEFAULT_SERVER_URL;
-  }
-  return raw;
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws`;
 };
 
 type Connection = {

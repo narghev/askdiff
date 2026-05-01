@@ -5,14 +5,14 @@ user-invocable: true
 allowed-tools: Bash
 ---
 
-Local-development variant of `/askdiff`. Starts the WS server **and** the
-browser UI's Vite dev server (with HMR), then opens the local Vite URL
-with the WS server wired in via `?server=`. Use this when you're
-editing `packages/ui-browser` and want changes to reload instantly
-instead of going through the Cloudflare deploy.
+Local-development variant of `/askdiff`. Starts the WS server **and**
+the browser UI's Vite dev server (with HMR). Vite is configured to
+proxy `/ws` to the WS server, so the UI uses the same same-origin
+`new WebSocket('ws://host/ws')` URL in dev as in prod. The
+`ASKDIFF_DEV_WS_TARGET` env var tells Vite which port to forward to.
 
-The production `/askdiff` skill opens the hosted UI; this one opens
-your local working copy.
+Use this when editing `packages/ui-browser` and you want changes to
+reload instantly instead of rebuilding the npm package.
 
 Run this as a single Bash command so discovered values survive into the
 launch:
@@ -37,12 +37,13 @@ if [ -f "$session_file" ]; then
 fi
 
 # 3. Start the WS server.
-cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/index.ts > /tmp/askdiff.log 2>&1 &
+cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
 disown
 sleep 1.5
 head -5 /tmp/askdiff.log
 
 # 4. Start Vite only if our previous one isn't still alive.
+#    Pass ASKDIFF_DEV_WS_TARGET so Vite's proxy points at the chosen port.
 ui_log=/tmp/askdiff-ui.log
 ui_pid_file=/tmp/askdiff-ui.pid
 ui_running=false
@@ -54,7 +55,8 @@ if [ -f "$ui_pid_file" ]; then
 fi
 if ! $ui_running; then
   : > "$ui_log"
-  cd "$project_cwd" && nohup pnpm --filter @askdiff/ui-browser dev > "$ui_log" 2>&1 &
+  cd "$project_cwd" && ASKDIFF_DEV_WS_TARGET="ws://localhost:${port}" \
+    nohup pnpm --filter @askdiff/ui-browser dev > "$ui_log" 2>&1 &
   echo $! > "$ui_pid_file"
   disown
 fi
@@ -68,7 +70,7 @@ done
 vite_port=$(sed -E -n 's|.*Local:[^0-9]*([0-9]+)/?.*|\1|p' "$ui_log" | head -1)
 [ -z "$vite_port" ] && vite_port=5173
 
-ui_url="http://localhost:${vite_port}/?server=ws%3A%2F%2Flocalhost%3A${port}"
+ui_url="http://localhost:${vite_port}/"
 
 (open "$ui_url" >/dev/null 2>&1 || xdg-open "$ui_url" >/dev/null 2>&1) &
 
