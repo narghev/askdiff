@@ -26,10 +26,13 @@ if [ -f "$ui_pid_file" ]; then
   rm -f "$ui_pid_file"
 fi
 
-# 2. Anything whose command line mentions our workspace packages —
+# 2. Anything whose command line mentions askdiff —
 #    pnpm filters (`@askdiff/server`, `@askdiff/ui-browser`), the tsx-run
-#    server entry, and the Vite binary inside the ui-browser package.
-patterns='@askdiff/(server|ui-browser)|packages/(server/src/(main|index)\.ts|ui-browser/[^ ]*vite)'
+#    server entry (which can appear as just `src/main.ts` due to pnpm
+#    --filter cwd), the Vite binary inside the ui-browser package, AND
+#    the published `askdiff` CLI when launched via npx (under
+#    `node_modules/askdiff/` or `.bin/askdiff`).
+patterns='@askdiff/(server|ui-browser)|src/(main|index)\.ts|ui-browser/[^ ]*vite|node_modules/askdiff/|/\.bin/askdiff'
 pids=$(pgrep -f "$patterns" 2>/dev/null | sort -u)
 
 if [ -n "$pids" ]; then

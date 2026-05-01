@@ -5,26 +5,18 @@ user-invocable: true
 allowed-tools: Bash
 ---
 
-Start the askdiff server in the background, detached. Pull the parent
-Claude Code session ID and project cwd from
-`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json` and pass them
-in explicitly. Open the hosted browser UI at the URL given by
-`$ASKDIFF_UI_URL` (default `https://askdiff.pages.dev`), wiring the
-local WS server URL in via the `?server=` query parameter.
+Start the published `askdiff` CLI in the background, detached. We resolve
+the parent Claude Code session in bash and pass it via env vars (rather
+than relying on `$PPID` lookup inside the CLI, because `npx` adds an
+extra process hop that breaks PPID resolution).
 
-Run this as a single Bash command so discovered values survive into the
-launch:
+Run this as a single Bash command:
 
 ```
 set +e
 
-# 1. Free port for the WS server (default 7837, bump until free).
-port=7837
-while lsof -iTCP:$port -sTCP:LISTEN -t >/dev/null 2>&1; do
-  port=$((port + 1))
-done
-
-# 2. Resolve parent Claude Code session + cwd.
+# Resolve parent Claude Code session + cwd from the manifest the CC
+# harness writes for each session.
 session_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json"
 session_id=""
 project_cwd="$PWD"
@@ -34,32 +26,34 @@ if [ -f "$session_file" ]; then
   [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
 fi
 
-# 3. Start the WS server (idempotent: each invocation gets its own port).
-cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
+cd "$project_cwd" \
+  && ASKDIFF_SESSION_ID="$session_id" \
+     ASKDIFF_PROJECT_CWD="$project_cwd" \
+     nohup npx -y askdiff --no-open > /tmp/askdiff.log 2>&1 &
 disown
-sleep 1.5
-head -5 /tmp/askdiff.log
 
-# 4. Build the UI URL and open the default browser.
-ui_base="${ASKDIFF_UI_URL:-https://askdiff.pages.dev}"
-ui_url="${ui_base}/?server=ws%3A%2F%2Flocalhost%3A${port}"
+# Wait for the listening line.
+for _ in $(seq 1 60); do
+  grep -q "listening on" /tmp/askdiff.log 2>/dev/null && break
+  sleep 0.25
+done
 
-(open "$ui_url" >/dev/null 2>&1 || xdg-open "$ui_url" >/dev/null 2>&1) &
+url=$(sed -nE 's|.*listening on (http://localhost:[0-9]+).*|\1|p' /tmp/askdiff.log | head -1)
+[ -z "$url" ] && url="http://localhost:7837"
 
+(open "$url" >/dev/null 2>&1 || xdg-open "$url" >/dev/null 2>&1) &
+
+head -10 /tmp/askdiff.log
 echo ""
-echo "UI: $ui_url"
+echo "UI: $url"
 ```
 
 Then tell the user:
-- the WS server port (visible in the `listening on ws://...` line)
+- the WS server port (visible in the `listening on http://...` line)
 - the resolved Claude session ID (from the `claude session:` line)
-- the WS log file: `/tmp/askdiff.log`
+- the log file: `/tmp/askdiff.log`
 - the UI URL (last echoed line) — already opened in their default browser
 
-If the `claude session:` line says `(none ...)`, the parent CC manifest was
-not found at `$session_file`. That usually means the server was launched
-from outside a Claude Code session.
-
-To point at a local UI dev server instead of the hosted one:
-`ASKDIFF_UI_URL=http://localhost:5173 /askdiff` (start Vite separately
-with `pnpm --filter @askdiff/ui-browser dev`).
+If the `claude session:` line says `(none ...)`, the parent CC manifest
+was not found at `$session_file`. That usually means askdiff was
+launched from outside a Claude Code session.

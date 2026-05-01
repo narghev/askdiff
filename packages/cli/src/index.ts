@@ -1,16 +1,27 @@
 import { type Server as HttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import open from "open";
 import { startServer, WS_PATH } from "@askdiff/server";
 import { PROTOCOL_VERSION } from "@askdiff/protocol";
 import { createUiHttpServer } from "./server-bundle.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 const PROJECT_NAME = "askdiff";
 const DEFAULT_PORT = 7837;
+
+interface RunOptions {
+  port?: number;
+  host: string;
+  open: boolean;
+  session?: string;
+  cwd?: string;
+}
 
 async function main(): Promise<void> {
   const program = new Command();
@@ -32,16 +43,28 @@ async function main(): Promise<void> {
       "-c, --cwd <path>",
       "project directory (defaults to env / current dir)",
     )
-    .parse(process.argv);
+    .action(async (opts: RunOptions) => {
+      await runServer(opts);
+    });
 
-  const opts = program.opts<{
-    port?: number;
-    host: string;
-    open: boolean;
-    session?: string;
-    cwd?: string;
-  }>();
+  program
+    .command("install-skill")
+    .description(
+      "Install the askdiff Claude Code skill into ~/.claude/skills/askdiff/",
+    )
+    .option(
+      "--force",
+      "overwrite an existing skill file without prompting",
+      false,
+    )
+    .action(async (opts: { force: boolean }) => {
+      await installSkill(opts.force);
+    });
 
+  await program.parseAsync(process.argv);
+}
+
+async function runServer(opts: RunOptions): Promise<void> {
   const resolved = await resolveOptions(opts);
   const port = await pickFreePort(resolved.port, resolved.host);
 
@@ -74,10 +97,37 @@ async function main(): Promise<void> {
   }
   console.log(`\nUI: ${url}`);
 
-  // Keep the process alive; startServer arms its own idle-shutdown timer
-  // so we'll exit on inactivity. Signal handlers below cover Ctrl-C.
   process.on("SIGINT", () => shutdown(httpServer, "SIGINT"));
   process.on("SIGTERM", () => shutdown(httpServer, "SIGTERM"));
+}
+
+async function installSkill(force: boolean): Promise<void> {
+  const source = join(__dirname, "skill.md");
+  try {
+    await stat(source);
+  } catch {
+    throw new Error(
+      `bundled skill not found at ${source} — this build is broken; please reinstall`,
+    );
+  }
+
+  const configDir = process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
+  const targetDir = join(configDir, "skills", PROJECT_NAME);
+  const target = join(targetDir, "SKILL.md");
+
+  const exists = await stat(target)
+    .then(() => true)
+    .catch(() => false);
+  if (exists && !force) {
+    console.log(`skill already installed at ${target}`);
+    console.log("re-run with --force to overwrite");
+    return;
+  }
+
+  await mkdir(targetDir, { recursive: true });
+  await copyFile(source, target);
+  console.log(`installed askdiff skill at ${target}`);
+  console.log("invoke /askdiff from any Claude Code session.");
 }
 
 function shutdown(server: HttpServer, signal: string): void {
@@ -94,13 +144,7 @@ interface ResolvedOptions {
   cwd: string;
 }
 
-async function resolveOptions(opts: {
-  port?: number;
-  host: string;
-  open: boolean;
-  session?: string;
-  cwd?: string;
-}): Promise<ResolvedOptions> {
+async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
   const fromManifest = await readParentManifest();
 
   const cwd =
@@ -115,8 +159,7 @@ async function resolveOptions(opts: {
     fromManifest?.sessionId ??
     null;
 
-  const port =
-    opts.port ?? (Number(process.env["PORT"]) || DEFAULT_PORT);
+  const port = opts.port ?? (Number(process.env["PORT"]) || DEFAULT_PORT);
 
   return {
     port,
@@ -155,7 +198,9 @@ async function pickFreePort(start: number, host: string): Promise<number> {
   for (let port = start; port < start + 100; port++) {
     if (await isPortFree(port, host)) return port;
   }
-  throw new Error(`could not find a free port in ${String(start)}-${String(start + 99)}`);
+  throw new Error(
+    `could not find a free port in ${String(start)}-${String(start + 99)}`,
+  );
 }
 
 function isPortFree(port: number, host: string): Promise<boolean> {
