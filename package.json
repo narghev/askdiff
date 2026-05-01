@@ -1,5 +1,5 @@
 {
-  "name": "askdiff",
+  "name": "askdiff-monorepo",
   "private": true,
   "version": "0.0.0",
   "description": "Treat your AI as a coworker — ask questions about its changes in any diff viewer.",
@@ -12,16 +12,21 @@
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "build": "tsx scripts/build.ts",
+    "release:patch": "pnpm run build && cd packages/cli && npm version patch && npm publish --access public",
+    "release:minor": "pnpm run build && cd packages/cli && npm version minor && npm publish --access public"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.3.0",
     "@types/jest": "^30.0.0",
+    "@types/node": "^25.6.0",
     "eslint": "^10.2.1",
     "globals": "^17.5.0",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.9",
+    "tsx": "^4.21.0",
     "typescript-eslint": "^8.59.0"
   }
 }

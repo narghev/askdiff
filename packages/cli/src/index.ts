@@ -1,0 +1,175 @@
+import { type Server as HttpServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { Command } from "commander";
+import open from "open";
+import { startServer, WS_PATH } from "@askdiff/server";
+import { PROTOCOL_VERSION } from "@askdiff/protocol";
+import { createUiHttpServer } from "./server-bundle.js";
+
+const PROJECT_NAME = "askdiff";
+const DEFAULT_PORT = 7837;
+
+async function main(): Promise<void> {
+  const program = new Command();
+  program
+    .name(PROJECT_NAME)
+    .description(
+      "Treat your AI as a coworker — ask questions about its changes in any diff viewer.",
+    )
+    .option("-p, --port <n>", "preferred port (auto-bumps if taken)", (v) =>
+      Number.parseInt(v, 10),
+    )
+    .option("-h, --host <addr>", "bind address", "127.0.0.1")
+    .option("--no-open", "do not auto-open the browser")
+    .option(
+      "-s, --session <uuid>",
+      "Claude Code session UUID to resume (defaults to env / parent session)",
+    )
+    .option(
+      "-c, --cwd <path>",
+      "project directory (defaults to env / current dir)",
+    )
+    .parse(process.argv);
+
+  const opts = program.opts<{
+    port?: number;
+    host: string;
+    open: boolean;
+    session?: string;
+    cwd?: string;
+  }>();
+
+  const resolved = await resolveOptions(opts);
+  const port = await pickFreePort(resolved.port, resolved.host);
+
+  const httpServer = createUiHttpServer();
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.once("listening", resolve);
+    httpServer.listen(port, resolved.host);
+  });
+
+  await startServer({
+    cwd: resolved.cwd,
+    sessionId: resolved.session,
+    httpServer,
+    onListening: (resolvedPort) => {
+      const url = `http://localhost:${String(resolvedPort)}/`;
+      console.log(`${PROJECT_NAME} server listening on ${url}`);
+      console.log(`  protocol: ${PROTOCOL_VERSION}`);
+      console.log(`  project:  ${resolved.cwd}`);
+      console.log(
+        `  claude session: ${resolved.session ?? "(none — set ASKDIFF_SESSION_ID or use --session)"}`,
+      );
+      console.log(`  websocket: ws://localhost:${String(resolvedPort)}${WS_PATH}`);
+    },
+  });
+
+  const url = `http://localhost:${String(port)}/`;
+  if (resolved.open) {
+    void open(url);
+  }
+  console.log(`\nUI: ${url}`);
+
+  // Keep the process alive; startServer arms its own idle-shutdown timer
+  // so we'll exit on inactivity. Signal handlers below cover Ctrl-C.
+  process.on("SIGINT", () => shutdown(httpServer, "SIGINT"));
+  process.on("SIGTERM", () => shutdown(httpServer, "SIGTERM"));
+}
+
+function shutdown(server: HttpServer, signal: string): void {
+  console.log(`\n${signal} received, shutting down.`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+interface ResolvedOptions {
+  port: number;
+  host: string;
+  open: boolean;
+  session: string | null;
+  cwd: string;
+}
+
+async function resolveOptions(opts: {
+  port?: number;
+  host: string;
+  open: boolean;
+  session?: string;
+  cwd?: string;
+}): Promise<ResolvedOptions> {
+  const fromManifest = await readParentManifest();
+
+  const cwd =
+    opts.cwd ??
+    process.env["ASKDIFF_PROJECT_CWD"] ??
+    fromManifest?.cwd ??
+    process.cwd();
+
+  const session =
+    opts.session ??
+    process.env["ASKDIFF_SESSION_ID"] ??
+    fromManifest?.sessionId ??
+    null;
+
+  const port =
+    opts.port ?? (Number(process.env["PORT"]) || DEFAULT_PORT);
+
+  return {
+    port,
+    host: opts.host,
+    open: opts.open,
+    session,
+    cwd,
+  };
+}
+
+interface ParentManifest {
+  sessionId?: string;
+  cwd?: string;
+}
+
+async function readParentManifest(): Promise<ParentManifest | null> {
+  const ppid = process.ppid;
+  if (!ppid) return null;
+  const dir = process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
+  const path = join(dir, "sessions", `${String(ppid)}.json`);
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const obj = parsed as Record<string, unknown>;
+    const out: ParentManifest = {};
+    if (typeof obj["sessionId"] === "string") out.sessionId = obj["sessionId"];
+    if (typeof obj["cwd"] === "string") out.cwd = obj["cwd"];
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+async function pickFreePort(start: number, host: string): Promise<number> {
+  for (let port = start; port < start + 100; port++) {
+    if (await isPortFree(port, host)) return port;
+  }
+  throw new Error(`could not find a free port in ${String(start)}-${String(start + 99)}`);
+}
+
+function isPortFree(port: number, host: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = createNetServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => {
+      tester.close(() => resolve(true));
+    });
+    tester.listen(port, host);
+  });
+}
+
+main().catch((err: unknown) => {
+  console.error("fatal:", err);
+  process.exit(1);
+});
