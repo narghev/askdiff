@@ -1,6 +1,7 @@
 # askdiff
 
 [![npm version](https://img.shields.io/npm/v/askdiff)](https://www.npmjs.com/package/askdiff)
+[![CI](https://github.com/narghev/askdiff/actions/workflows/ci.yml/badge.svg)](https://github.com/narghev/askdiff/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 **Treat your AI as a coworker — ask questions about its changes in a diff viewer.**
