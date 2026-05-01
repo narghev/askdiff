@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFileSync, cpSync, existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,8 @@ const skillSrc = resolve(
   "askdiff",
   "SKILL.md",
 );
+const pkgPath = join(__dirname, "package.json");
+const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
 
 rmSync(distDir, { recursive: true, force: true });
 
@@ -43,6 +45,14 @@ if (!existsSync(skillSrc)) {
   console.error(`error: SKILL.md not found at ${skillSrc}`);
   process.exit(1);
 }
-copyFileSync(skillSrc, join(distDir, "skill.md"));
+// Substitute the source's `ASKDIFF_VERSION="latest"` with this build's
+// exact version so the skill installed on a friend's machine pins to a
+// known release. The in-repo source stays as 'latest' so /askdiff in
+// this repo always pulls the newest published version.
+const skillBody = readFileSync(skillSrc, "utf8").replace(
+  /ASKDIFF_VERSION="latest"/,
+  `ASKDIFF_VERSION="${pkg.version}"`,
+);
+writeFileSync(join(distDir, "skill.md"), skillBody);
 
 console.log("CLI bundle written to", distDir);
