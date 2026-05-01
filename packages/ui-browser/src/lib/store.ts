@@ -47,6 +47,9 @@ type Store = {
   fileViewed: Record<string, boolean>;
   fileCollapsed: Record<string, boolean>;
 
+  // file-tree sidebar: dir path → collapsed? (default expanded)
+  treeCollapsed: Record<string, boolean>;
+
   // bumped to ask DiffPane to scroll a file into view
   scrollRequest?: { path: string; nonce: number };
 
@@ -71,6 +74,7 @@ type Store = {
   selectFile: (path: string) => void;
   toggleViewed: (path: string) => void;
   toggleCollapsed: (path: string) => void;
+  toggleTreeNode: (path: string) => void;
   requestScrollTo: (path: string) => void;
   appendChunk: (askId: string, delta: string) => void;
   finishAsk: (askId: string, outcome: "done" | "error", message?: string) => void;
@@ -124,6 +128,7 @@ export const useStore = create<Store>((set, get) => ({
   openAnchors: {},
   fileViewed: {},
   fileCollapsed: {},
+  treeCollapsed: {},
   toasts: [],
   _send: () => {
     get().pushToast("Not connected to askdiff server");
@@ -175,6 +180,14 @@ export const useStore = create<Store>((set, get) => ({
       fileCollapsed: {
         ...s.fileCollapsed,
         [path]: !(s.fileCollapsed[path] ?? false),
+      },
+    })),
+
+  toggleTreeNode: (path) =>
+    set((s) => ({
+      treeCollapsed: {
+        ...s.treeCollapsed,
+        [path]: !(s.treeCollapsed[path] ?? false),
       },
     })),
 
