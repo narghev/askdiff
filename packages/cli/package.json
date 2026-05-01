@@ -1,7 +1,7 @@
 {
   "name": "askdiff",
   "version": "0.1.0",
-  "description": "Treat your AI as a coworker — ask questions about its changes in any diff viewer.",
+  "description": "Treat your AI as a coworker — ask questions about its changes in a diff viewer.",
   "type": "module",
   "bin": { "askdiff": "./dist/index.js" },
   "files": ["dist", "README.md"],
