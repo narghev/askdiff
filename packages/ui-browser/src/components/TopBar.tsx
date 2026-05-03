@@ -1,6 +1,7 @@
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { SessionMenu } from "./SessionMenu";
+import { ThemeToggle } from "./ThemeToggle";
 
 const ConnectionDot = () => {
   const conn = useStore((s) => s.conn);
@@ -38,6 +39,7 @@ export const TopBar = () => {
         </div>
       )}
       <div className="ml-auto flex items-center gap-3">
+        <ThemeToggle />
         <ConnectionDot />
         <SessionMenu />
       </div>

@@ -154,3 +154,104 @@
 .token.deleted {
   color: #b31d28;
 }
+
+/* Dark theme: shadcn neutral-dark palette + GitHub Dark for diff/Prism.
+   Activated by `.dark` on <html>; the inline script in index.html sets
+   it before paint to avoid FOUC. No `dark:` Tailwind utilities are used
+   in the codebase, so plain CSS-variable overrides are sufficient. */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+.dark .diff-gutter-selected,
+.dark .diff-line:has(.diff-gutter-selected) > .diff-gutter {
+  background-color: oklch(0.32 0.05 240);
+}
+.dark .diff-code-selected,
+.dark .diff-line:has(.diff-code-selected) > .diff-code {
+  background-color: oklch(0.28 0.05 240);
+}
+
+.dark .diff-code-insert {
+  background-color: oklch(0.28 0.07 145);
+}
+.dark .diff-code-delete {
+  background-color: oklch(0.30 0.09 25);
+}
+.dark .diff-gutter-insert {
+  background-color: oklch(0.32 0.07 145);
+}
+.dark .diff-gutter-delete {
+  background-color: oklch(0.34 0.09 25);
+}
+
+/* GitHub Dark Prism palette — parallel to the light block above. */
+.dark .token.comment,
+.dark .token.prolog,
+.dark .token.doctype,
+.dark .token.cdata {
+  color: #8b949e;
+  font-style: italic;
+}
+.dark .token.punctuation {
+  color: #c9d1d9;
+}
+.dark .token.property,
+.dark .token.tag,
+.dark .token.constant,
+.dark .token.symbol {
+  color: #7ee787;
+}
+.dark .token.boolean,
+.dark .token.number {
+  color: #79c0ff;
+}
+.dark .token.selector,
+.dark .token.attr-name,
+.dark .token.string,
+.dark .token.char,
+.dark .token.builtin,
+.dark .token.inserted {
+  color: #a5d6ff;
+}
+.dark .token.operator,
+.dark .token.entity,
+.dark .token.url,
+.dark .language-css .token.string,
+.dark .style .token.string,
+.dark .token.atrule,
+.dark .token.attr-value,
+.dark .token.keyword {
+  color: #ff7b72;
+  background: transparent;
+}
+.dark .token.function,
+.dark .token.class-name {
+  color: #d2a8ff;
+}
+.dark .token.regex,
+.dark .token.important,
+.dark .token.variable {
+  color: #ffa657;
+}
+.dark .token.deleted {
+  color: #ffa198;
+}
