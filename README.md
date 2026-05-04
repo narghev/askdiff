@@ -4,7 +4,7 @@
 [![CI](https://github.com/narghev/askdiff/actions/workflows/ci.yml/badge.svg)](https://github.com/narghev/askdiff/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**Treat your AI as a coworker — ask questions about its changes in a diff viewer.**
+**Treat your AI as a coworker — ask questions about its changes in the same session that wrote the code.**
 
 `/askdiff` from inside any Claude Code session opens a GitHub-style diff
 viewer in your browser. Hover a line, click `+`, type a question. The
@@ -13,6 +13,8 @@ Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
 <!-- TODO: replace with demo.gif (Loom-style: hover line → click + → type question → tokens stream in) -->
+
+![askdiff demo](https://github.com/user-attachments/assets/bd5846e3-a674-4607-b791-e0ce00bd26a9)
 
 ## Quickstart
 
@@ -28,20 +30,25 @@ That's it. No API key, no global install, no config. The browser opens
 to a syntax-highlighted diff of your working tree; comments stream
 back as the model thinks.
 
+## Why askdiff?
+
+Developers often prompt AIs to write the code, then, if the diff becomes large enough, open draft GitHub PRs in order to review it better.
+Then, if there are any questions, take the diff back to the terminal, ask questions about it, and repeat.
+
+**Askdiff** simplifies this process by combining the diff viewer and the Q&A interface into one seamless experience, directly integrated with the very same Claude Code session that wrote the code. It makes you treat the model truly as a coworker who already knows the entire context and the reasoning behind every single line of the diff.
+
 ## How it works
 
-Each ask spawns the `claude` CLI with `--resume <your-session-id>`,
-**without** `--fork-session`. So your question becomes a real turn in
-the running session's transcript:
+Each ask spawns the `claude` CLI with `--resume <your-session-id>`.
+So your question becomes a real turn in the running session's transcript:
 
 - **No diff sent to the model.** The resumed session already has the
   full context that wrote the code; the prompt is just your question.
 - **No Anthropic API key needed.** askdiff doesn't talk to the API —
   it shells out to the `claude` CLI you've already auth'd via
   subscription or whatever.
-- **The model "remembers" when you switch back.** Open your terminal
-  later and Claude Code already knows about the conversation you
-  had in the diff viewer.
+- **No process cleanup.** The server self-exits after 5 minutes of
+  inactivity — close the browser tab and forget about it.
 
 ## Features
 
