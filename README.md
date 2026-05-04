@@ -12,9 +12,7 @@ answer streams back inline — and because each ask resumes the same
 Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
-<!-- TODO: replace with demo.gif (Loom-style: hover line → click + → type question → tokens stream in) -->
-
-![askdiff demo](https://github.com/user-attachments/assets/bd5846e3-a674-4607-b791-e0ce00bd26a9)
+![askdiff demo](https://raw.githubusercontent.com/narghev/askdiff/main/assets/output.gif)
 
 ## Quickstart
 
@@ -52,11 +50,20 @@ So your question becomes a real turn in the running session's transcript:
 
 ## Features
 
-| | |
-|---|---|
-| [Inline comments](#inline-comments) | Click the `+` gutter button to comment on any line. Drag to comment on a range. |
-| [Streaming answers](#streaming-answers) | Tokens stream in as Claude generates them — same model context that wrote the code. |
-| [Threaded discussions](#threaded-discussions) | Multiple asks per line, each its own thread, all anchored to the diff. |
+<table>
+  <tr>
+    <td><a href="#inline-comments">Inline comments</a></td>
+    <td>Click the <code>+</code> gutter button to comment on any line. Drag to comment on a range.</td>
+  </tr>
+  <tr>
+    <td><a href="#streaming-answers">Streaming answers</a></td>
+    <td>Tokens stream in as Claude generates them — same model context that wrote the code.</td>
+  </tr>
+  <tr>
+    <td><a href="#threaded-discussions">Threaded discussions</a></td>
+    <td>Multiple asks per line, each its own thread, all anchored to the diff.</td>
+  </tr>
+</table>
 
 ### Inline comments
 
