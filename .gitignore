@@ -19,3 +19,5 @@ coverage/
 # Local skill management — not part of askdiff
 .agents/
 skills-lock.json
+
+*.mp4

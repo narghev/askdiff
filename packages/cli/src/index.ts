@@ -78,6 +78,8 @@ async function runServer(opts: RunOptions): Promise<void> {
   await startServer({
     cwd: resolved.cwd,
     sessionId: resolved.session,
+    diffFile: resolved.diffFile,
+    ...(resolved.diffLabel !== undefined ? { diffLabel: resolved.diffLabel } : {}),
     httpServer,
     onListening: (resolvedPort) => {
       const url = `http://localhost:${String(resolvedPort)}/`;
@@ -87,6 +89,8 @@ async function runServer(opts: RunOptions): Promise<void> {
       console.log(
         `  claude session: ${resolved.session ?? "(none — set ASKDIFF_SESSION_ID or use --session)"}`,
       );
+      console.log(`  diff file:  ${resolved.diffFile}`);
+      if (resolved.diffLabel) console.log(`  diff label: ${resolved.diffLabel}`);
       console.log(`  websocket: ws://localhost:${String(resolvedPort)}${WS_PATH}`);
     },
   });
@@ -142,6 +146,8 @@ interface ResolvedOptions {
   open: boolean;
   session: string | null;
   cwd: string;
+  diffFile: string;
+  diffLabel?: string;
 }
 
 async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
@@ -161,12 +167,22 @@ async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
 
   const port = opts.port ?? (Number(process.env["PORT"]) || DEFAULT_PORT);
 
+  const diffFile = process.env["ASKDIFF_DIFF_FILE"];
+  if (!diffFile) {
+    throw new Error(
+      "ASKDIFF_DIFF_FILE is required. The askdiff skill must compute the diff and pass the path before launching the server.",
+    );
+  }
+  const diffLabel = process.env["ASKDIFF_DIFF_LABEL"];
+
   return {
     port,
     host: opts.host,
     open: opts.open,
     session,
     cwd,
+    diffFile,
+    ...(diffLabel ? { diffLabel } : {}),
   };
 }
 

@@ -1,5 +1,8 @@
-import { describe, expect, it } from "@jest/globals";
-import { parseUnifiedDiff } from "./diff";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
+import { DiffError, getDiff, parseUnifiedDiff } from "./diff";
 
 describe("parseUnifiedDiff", () => {
   it("returns an empty array for empty input", () => {
@@ -203,5 +206,50 @@ describe("parseUnifiedDiff", () => {
     const files = parseUnifiedDiff(raw);
     expect(files).toHaveLength(1);
     expect(files[0]?.hunks).toHaveLength(1);
+  });
+});
+
+describe("getDiff", () => {
+  let dir: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "askdiff-test-"));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reads a unified diff from disk and parses it", async () => {
+    const path = join(dir, "good.diff");
+    const raw = [
+      "diff --git a/src/x.ts b/src/x.ts",
+      "--- a/src/x.ts",
+      "+++ b/src/x.ts",
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n");
+    writeFileSync(path, raw, "utf8");
+
+    const result = await getDiff(path);
+    expect(result.raw).toBe(raw);
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]?.path).toBe("src/x.ts");
+  });
+
+  it("returns an empty result for an empty file", async () => {
+    const path = join(dir, "empty.diff");
+    writeFileSync(path, "", "utf8");
+
+    const result = await getDiff(path);
+    expect(result.raw).toBe("");
+    expect(result.files).toEqual([]);
+  });
+
+  it("throws DiffError when the file is missing", async () => {
+    const path = join(dir, "does-not-exist.diff");
+    await expect(getDiff(path)).rejects.toBeInstanceOf(DiffError);
   });
 });

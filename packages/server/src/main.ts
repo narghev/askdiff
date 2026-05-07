@@ -21,11 +21,22 @@ async function main(): Promise<void> {
   const port = Number.parseInt(process.env["PORT"] ?? "0", 10) || DEFAULT_PORT;
   const idleShutdownMs = readIdleShutdownMs();
 
+  const diffFile = process.env["ASKDIFF_DIFF_FILE"];
+  if (!diffFile) {
+    console.error(
+      "fatal: ASKDIFF_DIFF_FILE is required. The askdiff skill must compute the diff and pass the path before launching the server.",
+    );
+    process.exit(1);
+  }
+  const diffLabel = process.env["ASKDIFF_DIFF_LABEL"];
+
   const initialSession = await resolveInitialSessionId(cwd);
 
   await startServer({
     cwd,
     sessionId: initialSession,
+    diffFile,
+    ...(diffLabel ? { diffLabel } : {}),
     port,
     idleShutdownMs,
     onListening: (resolvedPort) => {
@@ -37,6 +48,8 @@ async function main(): Promise<void> {
       console.log(
         `  claude session: ${initialSession ?? "(none — send set_session before asking)"}`,
       );
+      console.log(`  diff file:  ${diffFile}`);
+      if (diffLabel) console.log(`  diff label: ${diffLabel}`);
       if (idleShutdownMs > 0) {
         console.log(
           `  idle shutdown: ${String(Math.round(idleShutdownMs / 1000))}s after last client`,

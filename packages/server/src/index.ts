@@ -7,8 +7,7 @@ import {
 import type { Socket } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClaudeCliError, streamAnswer } from "./claude";
-import { getDiff } from "./util/diff";
-import { GitError } from "./util/git";
+import { DiffError, getDiff } from "./util/diff";
 import { PROTOCOL_VERSION, parseClientMessage, type AskMessage } from "@askdiff/protocol";
 import { DEFAULT_HOST, DEFAULT_IDLE_SHUTDOWN_MS, PROJECT_NAME } from "./util/constants";
 import { isValidSessionId, sessionExists } from "./util/session";
@@ -20,11 +19,19 @@ export interface ServerState {
   cwd: string;
   claudeSessionId: string | null;
   clients: Set<WebSocket>;
+  diffFile: string;
+  diffLabel?: string;
 }
 
 export interface StartServerOptions {
   cwd: string;
   sessionId: string | null;
+  // Path to a unified diff file the skill produced (e.g. via `git diff
+  // HEAD~1 HEAD > $diffFile`). The server treats this as the single source
+  // of truth — it never invokes git itself.
+  diffFile: string;
+  // Short human description of the diff for the UI badge.
+  diffLabel?: string;
   // Standalone mode: pass `port` (and optionally `host`) and the server
   // creates its own HTTP listener.
   port?: number;
@@ -42,13 +49,18 @@ export interface ServerHandle {
   close: () => Promise<void>;
 }
 
-async function sendDiff(ws: WebSocket, cwd: string): Promise<void> {
+async function sendDiff(ws: WebSocket, state: ServerState): Promise<void> {
   try {
-    const { raw, files } = await getDiff(cwd);
-    send(ws, { type: "diff", raw, files });
+    const { raw, files } = await getDiff(state.diffFile);
+    send(ws, {
+      type: "diff",
+      raw,
+      files,
+      ...(state.diffLabel !== undefined ? { label: state.diffLabel } : {}),
+    });
   } catch (err) {
     const message =
-      err instanceof GitError ? err.message : `unexpected diff error: ${String(err)}`;
+      err instanceof DiffError ? err.message : `unexpected diff error: ${String(err)}`;
     send(ws, { type: "error", message });
   }
 }
@@ -123,7 +135,7 @@ async function handleSetSession(
 
 function errorMessage(err: unknown): string {
   if (err instanceof ClaudeCliError) return err.message;
-  if (err instanceof GitError) return err.message;
+  if (err instanceof DiffError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
 }
@@ -135,6 +147,8 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
     cwd: opts.cwd,
     claudeSessionId: opts.sessionId,
     clients: new Set(),
+    diffFile: opts.diffFile,
+    ...(opts.diffLabel !== undefined ? { diffLabel: opts.diffLabel } : {}),
   };
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_048_576 });
@@ -190,7 +204,7 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
 
     send(ws, { type: "session", session_id: state.claudeSessionId });
 
-    void sendDiff(ws, opts.cwd);
+    void sendDiff(ws, state);
 
     ws.on("message", (data) => {
       const text = Buffer.isBuffer(data)
@@ -220,7 +234,7 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
           return;
         }
         case "diff_request":
-          void sendDiff(ws, opts.cwd);
+          void sendDiff(ws, state);
           return;
         case "ping":
           send(ws, { type: "pong" });

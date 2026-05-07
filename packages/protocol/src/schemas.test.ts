@@ -217,6 +217,26 @@ describe("DiffMessageSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts an optional label", () => {
+    const result = DiffMessageSchema.safeParse({
+      type: "diff",
+      raw: "",
+      files: [],
+      label: "HEAD~1..HEAD",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a non-string label", () => {
+    const result = DiffMessageSchema.safeParse({
+      type: "diff",
+      raw: "",
+      files: [],
+      label: 42,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("ChunkMessageSchema", () => {

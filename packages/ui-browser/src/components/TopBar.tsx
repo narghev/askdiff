@@ -22,6 +22,12 @@ const ConnectionDot = () => {
 export const TopBar = () => {
   const project = useStore((s) => s.project);
   const protocol = useStore((s) => s.protocol);
+  const diffLabel = useStore((s) => s.diff?.label);
+
+  // Always advertise *what* the user is reviewing — when the skill didn't
+  // pre-compute a diff, the server falls back to the working tree, so that
+  // becomes the implicit label.
+  const label = diffLabel ?? (protocol ? "Working tree" : undefined);
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-card px-4">
@@ -30,6 +36,11 @@ export const TopBar = () => {
         {protocol && (
           <Badge variant="outline" className="font-mono text-[0.65rem]">
             {protocol}
+          </Badge>
+        )}
+        {label && (
+          <Badge variant="muted" className="font-mono text-[0.65rem]">
+            {label}
           </Badge>
         )}
       </div>
