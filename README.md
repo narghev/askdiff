@@ -21,12 +21,14 @@ the file, the conversation, and why it made the change.
 npx -y askdiff install-skill
 
 # 2. From any Claude Code session
-/askdiff
+/askdiff                                                                # working-tree changes
+/askdiff last commit                                                    # HEAD~1..HEAD
+/askdiff main vs feature/x                                              # main…HEAD (PR-style)
+/askdiff David's latest commit where he removed the xmpp integration    # author + content search
 ```
 
 That's it. No API key, no global install, no config. The browser opens
-to a syntax-highlighted diff of your working tree; comments stream
-back as the model thinks.
+to a syntax-highlighted diff; comments stream back as the model thinks.
 
 ## Why askdiff?
 
@@ -52,6 +54,10 @@ So your question becomes a real turn in the running session's transcript:
 
 <table>
   <tr>
+    <td><a href="#diff-selection">Diff selection</a></td>
+    <td>Describe which diff to review in plain English — working tree, last commit, branch comparisons, arbitrary refs.</td>
+  </tr>
+  <tr>
     <td><a href="#inline-comments">Inline comments</a></td>
     <td>Click the <code>+</code> gutter button to comment on any line. Drag to comment on a range.</td>
   </tr>
@@ -64,6 +70,37 @@ So your question becomes a real turn in the running session's transcript:
     <td>Multiple asks per line, each its own thread, all anchored to the diff.</td>
   </tr>
 </table>
+
+### Diff selection
+
+Anything after `/askdiff` is a description — Claude figures out the
+right `git diff` invocation, writes the result to a temp file, and
+points the server at it. Some examples:
+
+| You type | What you'll review |
+|---|---|
+| `/askdiff` | working-tree changes (uncommitted + untracked) |
+| `/askdiff last commit` | `HEAD~1..HEAD` |
+| `/askdiff last 3 commits` | `HEAD~3..HEAD` |
+| `/askdiff the 5th latest commit` | the single commit at `HEAD~4` |
+| `/askdiff main vs feature/x` | `main…HEAD` (three-dot, PR-style) |
+| `/askdiff abc123 vs def456` | `abc123..def456` |
+| `/askdiff staged` | `git diff --cached` |
+| `/askdiff the commit where I added the favicon` | Claude searches commit messages, diff content, or file history to find it |
+
+Defaults when ambiguous:
+- "branch X against branch Y" between named refs ⇒ three-dot (PR semantics).
+- Two arbitrary commits ⇒ two-dot (literal tree diff).
+- "Nth latest commit" ⇒ that single commit's changes.
+
+The TopBar shows what diff you're reviewing as a small label
+(e.g. `Working tree`, `HEAD~1..HEAD`, `main…feature/x`).
+
+**Re-invoking refreshes.** Run `/askdiff` again from the same session
+and the previous server is killed, the diff is recomputed, and the
+existing browser tab auto-reconnects on the same port. For working-tree
+diffs, an amber banner appears if any reviewed file has been edited
+since the diff was captured, prompting you to re-run `/askdiff`.
 
 ### Inline comments
 
