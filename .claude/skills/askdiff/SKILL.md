@@ -88,14 +88,31 @@ each ref the user named directly. If any fails, stop and tell the user
 which ref didn't resolve — do not launch the server. (Refs returned by the
 search ladder are already validated by virtue of `git log` finding them.)
 
-## Step 2 — write the diff to a temp file
+## Step 2 — write the diff to a session-stable file
+
+First resolve the parent Claude Code session and project cwd. All `/tmp`
+paths the skill writes (diff file, server log, dev-only UI log/pid file)
+key off the session UUID so concurrent `/askdiff` runs from different
+sessions don't collide:
 
 ```bash
-diff_file=$(mktemp /tmp/askdiff-diff.XXXXXX)
+session_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json"
+session_id=""
+project_cwd="$PWD"
+if [ -f "$session_file" ]; then
+  session_id=$(sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p' "$session_file")
+  manifest_cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$session_file")
+  [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
+fi
+suffix="${session_id:-pid-$$}"
+diff_file="/tmp/askdiff-diff.$suffix"
 ```
 
-(macOS `mktemp` only substitutes trailing X's, so the template can't have
-a `.diff` suffix. The server doesn't care about the extension.)
+No random component on the diff file — re-invoking `/askdiff` from the
+same session overwrites in place, which is exactly what a refresh would
+do. Different sessions get different suffixes and don't collide. (If
+launched outside a CC session, `session_id` is empty and the suffix
+falls back to `pid-<bash-pid>` so we still avoid collisions.)
 
 **Working tree (no description).** Untracked files don't appear in
 `git diff HEAD`, so we union them in via `--no-index`:
@@ -145,18 +162,31 @@ set +e
 # this repo always pulls the newest published version).
 ASKDIFF_VERSION="latest"
 
-# Filled in by Step 2/3.
+# Filled in by Step 2/3 (session_id, project_cwd, suffix come from Step 2's
+# preamble — keep that block above this one in your final invocation).
 EXTRA_DIFF_FILE=""
 EXTRA_DIFF_LABEL=""
 
-# 1. Resolve parent Claude Code session + cwd.
-session_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json"
-session_id=""
-project_cwd="$PWD"
-if [ -f "$session_file" ]; then
-  session_id=$(sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p' "$session_file")
-  manifest_cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$session_file")
-  [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
+log_file="/tmp/askdiff.$suffix.log"
+pid_file="/tmp/askdiff.$suffix.pid"
+
+# 1. If a server for this session is already running, kill it and remember
+#    its port so the new server reuses it. Reusing the port keeps the
+#    open browser tab's URL valid across the restart — the WS will
+#    auto-reconnect (see lib/ws.ts) and load the freshly-written diff.
+saved_port=""
+if [ -f "$pid_file" ]; then
+  read -r old_pid saved_port < "$pid_file" 2>/dev/null
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null
+    if [ -n "$saved_port" ]; then
+      for _ in $(seq 1 20); do
+        lsof -iTCP:"$saved_port" -sTCP:LISTEN -t >/dev/null 2>&1 || break
+        sleep 0.1
+      done
+    fi
+  fi
+  rm -f "$pid_file"
 fi
 
 # 2. Update check. Skipped if explicitly disabled, or if pinned to
@@ -171,29 +201,49 @@ if [ -z "$ASKDIFF_SKIP_UPDATE_CHECK" ] && [ "$ASKDIFF_VERSION" != "latest" ]; th
   fi
 fi
 
-# 3. Launch.
+# 3. Launch. Pass --port if we have one to reuse; otherwise the CLI picks 7837+.
+port_arg=""
+[ -n "$saved_port" ] && port_arg="--port $saved_port"
+
 cd "$project_cwd" \
   && ASKDIFF_SESSION_ID="$session_id" \
      ASKDIFF_PROJECT_CWD="$project_cwd" \
      ASKDIFF_DIFF_FILE="$EXTRA_DIFF_FILE" \
      ASKDIFF_DIFF_LABEL="$EXTRA_DIFF_LABEL" \
-     nohup npx -y askdiff@"$ASKDIFF_VERSION" --no-open > /tmp/askdiff.log 2>&1 &
+     nohup npx -y askdiff@"$ASKDIFF_VERSION" --no-open $port_arg > "$log_file" 2>&1 &
+new_pid=$!
 disown
 
 # Wait for the listening line to land in the log.
 for _ in $(seq 1 60); do
-  grep -q "listening on" /tmp/askdiff.log 2>/dev/null && break
+  grep -q "listening on" "$log_file" 2>/dev/null && break
   sleep 0.25
 done
 
-url=$(sed -nE 's|.*listening on (http://localhost:[0-9]+).*|\1|p' /tmp/askdiff.log | head -1)
-[ -z "$url" ] && url="http://localhost:7837"
+# 4. Persist <pid> <port> so the next /askdiff invocation in this session
+#    can find and replace this server (the file path is session-keyed in
+#    Step 2's preamble).
+port=$(sed -nE 's|.*listening on http://localhost:([0-9]+).*|\1|p' "$log_file" | head -1)
+[ -z "$port" ] && port=7837
+echo "$new_pid $port" > "$pid_file"
 
-(open "$url" >/dev/null 2>&1 || xdg-open "$url" >/dev/null 2>&1) &
+url="http://localhost:$port/"
 
-head -10 /tmp/askdiff.log
+# Only auto-open the browser on the *first* launch (no saved_port). On
+# refresh-style re-invocations, the user's tab is still open and will
+# reconnect automatically; opening another tab would be annoying.
+if [ -z "$saved_port" ]; then
+  (open "$url" >/dev/null 2>&1 || xdg-open "$url" >/dev/null 2>&1) &
+fi
+
+head -10 "$log_file"
 echo ""
+if [ -n "$saved_port" ]; then
+  echo "Refreshed: same port, new diff. Browser tab will auto-reconnect."
+fi
 echo "UI: $url"
+echo "Log: $log_file"
+echo "PID: $new_pid (saved to $pid_file)"
 ```
 
 **If the output is the single line `UPDATE_AVAILABLE: pinned=X latest=Y`**
@@ -215,8 +265,10 @@ launch already happened. Tell the user:
 - the WS server URL (the `listening on http://...` line)
 - the resolved Claude session ID (the `claude session:` line)
 - the diff label (always set)
-- the log file: `/tmp/askdiff.log`
-- the UI URL (last echoed line) — already opened in their default browser
+- the log file: `/tmp/askdiff.$suffix.log` (printed as the last `Log:` line)
+- the UI URL (last echoed `UI:` line) — opened on first launch; on a
+  refresh-style re-invocation (the `Refreshed:` line is present), the
+  user's existing tab will reconnect automatically
 
 If the `claude session:` line says `(none ...)`, the parent CC manifest
 was not found at `$session_file`. That usually means askdiff was

@@ -93,14 +93,31 @@ each ref the user named directly. If any fails, stop and tell the user
 which ref didn't resolve — do not launch the server. (Refs returned by the
 search ladder are already validated by virtue of `git log` finding them.)
 
-## Step 2 — write the diff to a temp file
+## Step 2 — write the diff to a session-stable file
+
+First resolve the parent Claude Code session and project cwd. All `/tmp`
+paths the skill writes (diff file, server log, dev-only UI log/pid file)
+key off the session UUID so concurrent `/askdiff` runs from different
+sessions don't collide:
 
 ```bash
-diff_file=$(mktemp /tmp/askdiff-diff.XXXXXX)
+session_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json"
+session_id=""
+project_cwd="$PWD"
+if [ -f "$session_file" ]; then
+  session_id=$(sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p' "$session_file")
+  manifest_cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$session_file")
+  [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
+fi
+suffix="${session_id:-pid-$$}"
+diff_file="/tmp/askdiff-diff.$suffix"
 ```
 
-(macOS `mktemp` only substitutes trailing X's, so the template can't have
-a `.diff` suffix. The server doesn't care about the extension.)
+No random component on the diff file — re-invoking `/askdiff` from the
+same session overwrites in place, which is exactly what a refresh would
+do. Different sessions get different suffixes and don't collide. (If
+launched outside a CC session, `session_id` is empty and the suffix
+falls back to `pid-<bash-pid>` so we still avoid collisions.)
 
 **Working tree (no description).** Untracked files don't appear in
 `git diff HEAD`, so we union them in via `--no-index`:
@@ -143,24 +160,44 @@ the values from Step 2/3.
 ```
 set +e
 
-# Filled in by Step 2/3.
+# Filled in by Step 2/3 (session_id, project_cwd, suffix come from Step 2's
+# preamble — keep that block above this one in your final invocation).
 EXTRA_DIFF_FILE=""
 EXTRA_DIFF_LABEL=""
 
-# 1. Free port for the WS server (default 7837, bump until free).
-port=7837
-while lsof -iTCP:$port -sTCP:LISTEN -t >/dev/null 2>&1; do
-  port=$((port + 1))
-done
+log_file="/tmp/askdiff.$suffix.log"
+ui_log="/tmp/askdiff-ui.$suffix.log"
+ui_pid_file="/tmp/askdiff-ui.$suffix.pid"
+pid_file="/tmp/askdiff.$suffix.pid"
 
-# 2. Resolve parent Claude Code session + cwd.
-session_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$PPID.json"
-session_id=""
-project_cwd="$PWD"
-if [ -f "$session_file" ]; then
-  session_id=$(sed -n 's/.*"sessionId":"\([^"]*\)".*/\1/p' "$session_file")
-  manifest_cwd=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$session_file")
-  [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
+# 1. If a server for this session is already running, kill it and remember
+#    its port. Reusing the port matters here especially: Vite's /ws proxy
+#    (ASKDIFF_DEV_WS_TARGET) is locked to whatever port we passed when
+#    Vite first started. Reusing keeps the browser tab alive — its WS
+#    will auto-reconnect (see lib/ws.ts) and load the new diff.
+saved_port=""
+if [ -f "$pid_file" ]; then
+  read -r old_pid saved_port < "$pid_file" 2>/dev/null
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null
+    if [ -n "$saved_port" ]; then
+      for _ in $(seq 1 20); do
+        lsof -iTCP:"$saved_port" -sTCP:LISTEN -t >/dev/null 2>&1 || break
+        sleep 0.1
+      done
+    fi
+  fi
+  rm -f "$pid_file"
+fi
+
+# 2. Pick a port: reuse the saved one if present, else pick from 7837 up.
+if [ -n "$saved_port" ]; then
+  port="$saved_port"
+else
+  port=7837
+  while lsof -iTCP:$port -sTCP:LISTEN -t >/dev/null 2>&1; do
+    port=$((port + 1))
+  done
 fi
 
 # 3. Start the WS server (in-repo via tsx).
@@ -170,15 +207,15 @@ cd "$project_cwd" \
      ASKDIFF_PROJECT_CWD="$project_cwd" \
      ASKDIFF_DIFF_FILE="$EXTRA_DIFF_FILE" \
      ASKDIFF_DIFF_LABEL="$EXTRA_DIFF_LABEL" \
-     nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
+     nohup pnpm --filter @askdiff/server exec tsx src/main.ts > "$log_file" 2>&1 &
+new_pid=$!
 disown
 sleep 1.5
-head -5 /tmp/askdiff.log
+echo "$new_pid $port" > "$pid_file"
+head -5 "$log_file"
 
-# 4. Start Vite only if our previous one isn't still alive.
+# 4. Start Vite only if our previous one isn't still alive (per session).
 #    Pass ASKDIFF_DEV_WS_TARGET so Vite's proxy points at the chosen port.
-ui_log=/tmp/askdiff-ui.log
-ui_pid_file=/tmp/askdiff-ui.pid
 ui_running=false
 if [ -f "$ui_pid_file" ]; then
   prev_pid=$(cat "$ui_pid_file" 2>/dev/null)
@@ -205,22 +242,38 @@ vite_port=$(sed -E -n 's|.*Local:[^0-9]*([0-9]+)/?.*|\1|p' "$ui_log" | head -1)
 
 ui_url="http://localhost:${vite_port}/"
 
-(open "$ui_url" >/dev/null 2>&1 || xdg-open "$ui_url" >/dev/null 2>&1) &
+# Only auto-open the browser on the *first* launch (no saved_port). On
+# refresh-style re-invocations, the user's tab is still open and its WS
+# will auto-reconnect; opening another tab would be annoying.
+if [ -z "$saved_port" ]; then
+  (open "$ui_url" >/dev/null 2>&1 || xdg-open "$ui_url" >/dev/null 2>&1) &
+fi
 
 echo ""
+if [ -n "$saved_port" ]; then
+  echo "Refreshed: same port, new diff. Browser tab will auto-reconnect."
+fi
 echo "UI: $ui_url"
+echo "WS log: $log_file"
+echo "UI log: $ui_log"
+echo "WS PID: $new_pid (saved to $pid_file)"
 ```
 
 Then tell the user:
 - the WS server port (visible in the `listening on ws://...` line)
 - the resolved Claude session ID (from the `claude session:` line)
 - the diff label (always set)
-- the WS log file: `/tmp/askdiff.log`
-- the Vite log file: `/tmp/askdiff-ui.log`
-- the UI URL (last echoed line) — already opened in their default browser
+- the WS log file (printed as the `WS log:` line — `/tmp/askdiff.<suffix>.log`)
+- the Vite log file (printed as the `UI log:` line — `/tmp/askdiff-ui.<suffix>.log`)
+- the UI URL (last echoed `UI:` line) — already opened in their default browser
 
 If the `claude session:` line says `(none ...)`, the parent CC manifest was
 not found at `$session_file`. That usually means the server was launched
 from outside a Claude Code session.
 
-`/askdiff-stop` cleans up both processes.
+The WS server idle-shuts after 5 min with no connected clients (see
+`ASKDIFF_IDLE_SHUTDOWN_MS`); re-invoking `/askdiff-dev` always kills the
+previous WS server for this session before starting a new one. Vite
+intentionally stays running across re-invocations (HMR is the whole
+point) — kill it via Activity Monitor or `pkill -f 'ui-browser.*vite'`
+on the rare occasion you want it gone.

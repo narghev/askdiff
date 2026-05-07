@@ -119,11 +119,13 @@ subsequent `/askdiff` runs the upgraded CLI.
 `install-skill` writes one file: `~/.claude/skills/askdiff/SKILL.md`.
 That's the entire surface area in your CC config.
 
-In this repo (for contributors) there are two more:
+In this repo (for contributors) there is one more:
 
 - `/askdiff-dev` — local Vite dev server with HMR + tsx-run WS server.
-  Use when editing `packages/ui-browser`.
-- `/askdiff-stop` — kill everything `/askdiff` and `/askdiff-dev` started.
+  Use when editing `packages/server` or `packages/ui-browser`. Re-invoking
+  `/askdiff-dev` (or `/askdiff`) from the same session kills the previous
+  server, reuses its port, and points at a freshly-written diff — that's
+  the refresh path. The WS server idle-shuts after 5 min with no clients.
 
 ## Architecture
 
@@ -150,9 +152,15 @@ pnpm run build
 From a Claude Code session in this repo:
 
 ```
-/askdiff-dev                    # Vite + WS server with HMR
-/askdiff-stop                   # tear it down
+/askdiff-dev                    # first launch: Vite + WS server with HMR
+/askdiff-dev                    # again: kills the WS server, restarts on same port with a fresh diff
+/askdiff-dev last commit        # description-driven: HEAD~1..HEAD
 ```
+
+The WS server idle-shuts after 5 min with no connected clients; Vite is
+intentionally persistent (HMR is the whole point). Kill Vite via
+Activity Monitor or `pkill -f 'ui-browser.*vite'` on the rare occasion
+you want it gone.
 
 To exercise the production-shaped binary locally:
 
@@ -170,13 +178,15 @@ askdiff from outside a Claude Code session (no `$PPID.json` in
 else. Pass `--session <uuid>` explicitly to override.
 
 **"Port 7837 is already in use"**
-Another askdiff is running, or something else grabbed the port. Run
-`/askdiff-stop` (in-repo), or pass `--port 7838`.
+Another askdiff (from a different session) is running, or something
+else grabbed the port. Same-session re-invocations don't hit this —
+they reuse their session's saved port. Pass `--port 7838` to force a
+specific port, or wait 5 min for the idle WS server to self-terminate.
 
 **Browser opens, UI loads, but never connects**
-The WS upgrade is failing. Check `/tmp/askdiff.log` — usually it's an
-old version of the UI cached against a new server (run
-`/askdiff-stop` and reload the browser tab) or a hung
+The WS upgrade is failing. Check `/tmp/askdiff.<suffix>.log` (where
+`<suffix>` is your CC session UUID) — usually it's an old UI cached
+against a new server (reload the browser tab) or a hung
 `claude --resume` subprocess (check `ps aux | grep claude`).
 
 **`/askdiff` doesn't appear in Claude Code's skill picker**
