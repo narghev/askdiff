@@ -8,6 +8,7 @@ import type { Socket } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClaudeCliError, streamAnswer } from "./claude";
 import { DiffError, getDiff } from "./util/diff";
+import { checkStaleness } from "./util/staleness";
 import { PROTOCOL_VERSION, parseClientMessage, type AskMessage } from "@askdiff/protocol";
 import { DEFAULT_HOST, DEFAULT_IDLE_SHUTDOWN_MS, PROJECT_NAME } from "./util/constants";
 import { isValidSessionId, sessionExists } from "./util/session";
@@ -21,6 +22,10 @@ export interface ServerState {
   clients: Set<WebSocket>;
   diffFile: string;
   diffLabel?: string;
+  // True when the diff is captured from the working tree (i.e. its
+  // contents can drift as the user edits files). Triggers the
+  // staleness check on every diff push.
+  volatile: boolean;
 }
 
 export interface StartServerOptions {
@@ -32,6 +37,10 @@ export interface StartServerOptions {
   diffFile: string;
   // Short human description of the diff for the UI badge.
   diffLabel?: string;
+  // Whether the diff was captured from the working tree. Defaults to
+  // false (history-based diffs are immutable). When true, every diff
+  // push includes mtime-based staleness flags.
+  volatile?: boolean;
   // Standalone mode: pass `port` (and optionally `host`) and the server
   // creates its own HTTP listener.
   port?: number;
@@ -52,11 +61,17 @@ export interface ServerHandle {
 async function sendDiff(ws: WebSocket, state: ServerState): Promise<void> {
   try {
     const { raw, files } = await getDiff(state.diffFile);
+    const staleness = state.volatile
+      ? await checkStaleness(state.diffFile, state.cwd, files)
+      : { stale: false, staleFiles: [] };
     send(ws, {
       type: "diff",
       raw,
       files,
       ...(state.diffLabel !== undefined ? { label: state.diffLabel } : {}),
+      ...(staleness.stale
+        ? { stale: true, staleFiles: staleness.staleFiles }
+        : {}),
     });
   } catch (err) {
     const message =
@@ -149,6 +164,7 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
     clients: new Set(),
     diffFile: opts.diffFile,
     ...(opts.diffLabel !== undefined ? { diffLabel: opts.diffLabel } : {}),
+    volatile: opts.volatile ?? false,
   };
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_048_576 });

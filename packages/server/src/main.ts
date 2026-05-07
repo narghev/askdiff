@@ -16,6 +16,12 @@ function readIdleShutdownMs(): number {
   return Number.isFinite(n) ? n : DEFAULT_IDLE_SHUTDOWN_MS;
 }
 
+const isTruthy = (v: string | undefined): boolean => {
+  if (v === undefined) return false;
+  const lower = v.trim().toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes";
+};
+
 async function main(): Promise<void> {
   const cwd = process.env["ASKDIFF_PROJECT_CWD"] ?? process.cwd();
   const port = Number.parseInt(process.env["PORT"] ?? "0", 10) || DEFAULT_PORT;
@@ -29,6 +35,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const diffLabel = process.env["ASKDIFF_DIFF_LABEL"];
+  const volatile = isTruthy(process.env["ASKDIFF_DIFF_VOLATILE"]);
 
   const initialSession = await resolveInitialSessionId(cwd);
 
@@ -37,6 +44,7 @@ async function main(): Promise<void> {
     sessionId: initialSession,
     diffFile,
     ...(diffLabel ? { diffLabel } : {}),
+    volatile,
     port,
     idleShutdownMs,
     onListening: (resolvedPort) => {
@@ -50,6 +58,7 @@ async function main(): Promise<void> {
       );
       console.log(`  diff file:  ${diffFile}`);
       if (diffLabel) console.log(`  diff label: ${diffLabel}`);
+      if (volatile) console.log(`  diff kind:  volatile (staleness checks enabled)`);
       if (idleShutdownMs > 0) {
         console.log(
           `  idle shutdown: ${String(Math.round(idleShutdownMs / 1000))}s after last client`,

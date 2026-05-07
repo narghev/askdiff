@@ -237,6 +237,38 @@ describe("DiffMessageSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("accepts optional stale + staleFiles", () => {
+    const result = DiffMessageSchema.safeParse({
+      type: "diff",
+      raw: "",
+      files: [],
+      label: "Working tree",
+      stale: true,
+      staleFiles: ["src/foo.ts", "src/bar.ts"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a non-boolean stale", () => {
+    const result = DiffMessageSchema.safeParse({
+      type: "diff",
+      raw: "",
+      files: [],
+      stale: "yes",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-string entries in staleFiles", () => {
+    const result = DiffMessageSchema.safeParse({
+      type: "diff",
+      raw: "",
+      files: [],
+      staleFiles: ["src/foo.ts", 42],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("ChunkMessageSchema", () => {
