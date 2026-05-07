@@ -65,6 +65,17 @@ export const DiffMessageSchema = z.object({
   // "main…feature/x", "Working tree"). The skill sets it via the
   // ASKDIFF_DIFF_LABEL env var; absent for legacy clients.
   label: z.string().optional(),
+  // Set true when the server detected that one or more files in the diff
+  // have been modified (or removed) since the diff was captured. Only
+  // populated for "volatile" diffs — i.e. working-tree diffs the skill
+  // marked with ASKDIFF_DIFF_VOLATILE=1. Description-based diffs
+  // (HEAD~1..HEAD, main…feature/x) never set this since their content
+  // doesn't depend on the working tree.
+  stale: z.boolean().optional(),
+  // Paths (relative to project cwd) of files whose mtime is newer than
+  // the diff file's mtime, or that no longer exist on disk. The UI uses
+  // this to mark individual files in the FileTree.
+  staleFiles: z.array(z.string()).optional(),
 });
 
 export const ChunkMessageSchema = z.object({

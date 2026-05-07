@@ -80,6 +80,7 @@ async function runServer(opts: RunOptions): Promise<void> {
     sessionId: resolved.session,
     diffFile: resolved.diffFile,
     ...(resolved.diffLabel !== undefined ? { diffLabel: resolved.diffLabel } : {}),
+    volatile: resolved.volatile,
     httpServer,
     onListening: (resolvedPort) => {
       const url = `http://localhost:${String(resolvedPort)}/`;
@@ -91,6 +92,7 @@ async function runServer(opts: RunOptions): Promise<void> {
       );
       console.log(`  diff file:  ${resolved.diffFile}`);
       if (resolved.diffLabel) console.log(`  diff label: ${resolved.diffLabel}`);
+      if (resolved.volatile) console.log(`  diff kind:  volatile (staleness checks enabled)`);
       console.log(`  websocket: ws://localhost:${String(resolvedPort)}${WS_PATH}`);
     },
   });
@@ -148,6 +150,7 @@ interface ResolvedOptions {
   cwd: string;
   diffFile: string;
   diffLabel?: string;
+  volatile: boolean;
 }
 
 async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
@@ -174,6 +177,7 @@ async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
     );
   }
   const diffLabel = process.env["ASKDIFF_DIFF_LABEL"];
+  const volatile = isTruthy(process.env["ASKDIFF_DIFF_VOLATILE"]);
 
   return {
     port,
@@ -183,8 +187,15 @@ async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
     cwd,
     diffFile,
     ...(diffLabel ? { diffLabel } : {}),
+    volatile,
   };
 }
+
+const isTruthy = (v: string | undefined): boolean => {
+  if (v === undefined) return false;
+  const lower = v.trim().toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes";
+};
 
 interface ParentManifest {
   sessionId?: string;

@@ -40,7 +40,17 @@ type Store = {
   sessionId: string | null;
 
   // diff
-  diff?: { raw: string; files: DiffFile[]; label?: string };
+  diff?: {
+    raw: string;
+    files: DiffFile[];
+    label?: string;
+    // Set when the server detected the diff has drifted from the
+    // working tree (only ever true for volatile/working-tree diffs).
+    stale?: boolean;
+    // Paths (relative to project cwd) that are newer than the diff
+    // file's mtime, or that have been removed from disk.
+    staleFiles?: string[];
+  };
   selectedFile?: string;
 
   // per-file UI state (path → flag)
@@ -70,7 +80,13 @@ type Store = {
   setProtocol: (p: string) => void;
   setProject: (p: string) => void;
   setSessionId: (sid: string | null) => void;
-  setDiff: (raw: string, files: DiffFile[], label?: string) => void;
+  setDiff: (
+    raw: string,
+    files: DiffFile[],
+    label?: string,
+    stale?: boolean,
+    staleFiles?: string[],
+  ) => void;
   toggleViewed: (path: string) => void;
   toggleCollapsed: (path: string) => void;
   toggleTreeNode: (path: string) => void;
@@ -139,12 +155,18 @@ export const useStore = create<Store>((set, get) => ({
   setProject: (p) => set({ project: p }),
   setSessionId: (sid) => set({ sessionId: sid }),
 
-  setDiff: (raw, files, label) => {
+  setDiff: (raw, files, label, stale, staleFiles) => {
     const s = get();
     const prev = s.selectedFile;
     const stillExists = prev !== undefined && files.some((f) => f.path === prev);
     const next: Partial<Store> = {
-      diff: { raw, files, ...(label !== undefined ? { label } : {}) },
+      diff: {
+        raw,
+        files,
+        ...(label !== undefined ? { label } : {}),
+        ...(stale !== undefined ? { stale } : {}),
+        ...(staleFiles !== undefined ? { staleFiles } : {}),
+      },
     };
     if (stillExists) {
       next.selectedFile = prev;

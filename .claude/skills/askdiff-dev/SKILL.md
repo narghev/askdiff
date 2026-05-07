@@ -146,6 +146,12 @@ user the requested diff is empty and don't launch. The working-tree path
 *can* legitimately be empty (clean tree); launch anyway and the UI will
 show "No changes."
 
+**Mark the diff as volatile if you took the working-tree path.** Set
+`volatile=1` if Step 2 used the working-tree block (the diff can drift as
+the user keeps editing); set `volatile=0` for description-based diffs
+(immutable git history). Step 4 forwards this to the server as
+`ASKDIFF_DIFF_VOLATILE`, which gates the per-file mtime staleness check.
+
 ## Step 3 — pick a short label
 
 Use the "Suggested label" column above. For the working-tree case, use
@@ -207,6 +213,7 @@ cd "$project_cwd" \
      ASKDIFF_PROJECT_CWD="$project_cwd" \
      ASKDIFF_DIFF_FILE="$EXTRA_DIFF_FILE" \
      ASKDIFF_DIFF_LABEL="$EXTRA_DIFF_LABEL" \
+     ASKDIFF_DIFF_VOLATILE="${volatile:-0}" \
      nohup pnpm --filter @askdiff/server exec tsx src/main.ts > "$log_file" 2>&1 &
 new_pid=$!
 disown

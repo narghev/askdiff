@@ -45,7 +45,7 @@ const dispatch = (msg: ServerMessage) => {
       s.setSessionId(msg.session_id);
       return;
     case "diff":
-      s.setDiff(msg.raw, msg.files, msg.label);
+      s.setDiff(msg.raw, msg.files, msg.label, msg.stale, msg.staleFiles);
       return;
     case "chunk":
       s.appendChunk(msg.id, msg.delta);
