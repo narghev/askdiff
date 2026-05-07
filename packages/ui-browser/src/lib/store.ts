@@ -40,7 +40,7 @@ type Store = {
   sessionId: string | null;
 
   // diff
-  diff?: { raw: string; files: DiffFile[] };
+  diff?: { raw: string; files: DiffFile[]; label?: string };
   selectedFile?: string;
 
   // per-file UI state (path → flag)
@@ -70,7 +70,7 @@ type Store = {
   setProtocol: (p: string) => void;
   setProject: (p: string) => void;
   setSessionId: (sid: string | null) => void;
-  setDiff: (raw: string, files: DiffFile[]) => void;
+  setDiff: (raw: string, files: DiffFile[], label?: string) => void;
   toggleViewed: (path: string) => void;
   toggleCollapsed: (path: string) => void;
   toggleTreeNode: (path: string) => void;
@@ -139,11 +139,13 @@ export const useStore = create<Store>((set, get) => ({
   setProject: (p) => set({ project: p }),
   setSessionId: (sid) => set({ sessionId: sid }),
 
-  setDiff: (raw, files) => {
+  setDiff: (raw, files, label) => {
     const s = get();
     const prev = s.selectedFile;
     const stillExists = prev !== undefined && files.some((f) => f.path === prev);
-    const next: Partial<Store> = { diff: { raw, files } };
+    const next: Partial<Store> = {
+      diff: { raw, files, ...(label !== undefined ? { label } : {}) },
+    };
     if (stillExists) {
       next.selectedFile = prev;
     } else {

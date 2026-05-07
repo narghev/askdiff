@@ -61,6 +61,10 @@ export const DiffMessageSchema = z.object({
   type: z.literal("diff"),
   raw: z.string(),
   files: z.array(DiffFileSchema),
+  // Short human description of *what* this diff shows ("HEAD~1..HEAD",
+  // "main…feature/x", "Working tree"). The skill sets it via the
+  // ASKDIFF_DIFF_LABEL env var; absent for legacy clients.
+  label: z.string().optional(),
 });
 
 export const ChunkMessageSchema = z.object({

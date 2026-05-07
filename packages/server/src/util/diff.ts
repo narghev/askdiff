@@ -1,21 +1,31 @@
+import { readFile } from "node:fs/promises";
 import type { DiffFile, DiffHunk } from "@askdiff/protocol";
-import { EMPTY_TREE_SHA } from "./constants";
-import { hasHead, getTrackedDiff, getUntrackedDiff } from "./git";
+
+// Failure to read or parse the diff file. The skill is the only producer of
+// these files; surfacing this distinct class lets the WS layer attach a
+// stable error message when something goes wrong on read.
+export class DiffError extends Error {
+  constructor(message: string, override readonly cause?: unknown) {
+    super(message);
+    this.name = "DiffError";
+  }
+}
 
 export interface DiffResult {
   raw: string;
   files: DiffFile[];
 }
 
-export const getDiff = async (cwd: string): Promise<DiffResult> => {
-  const base = (await hasHead(cwd)) ? "HEAD" : EMPTY_TREE_SHA;
-  const [tracked, untracked] = await Promise.all([
-    getTrackedDiff(cwd, base),
-    getUntrackedDiff(cwd),
-  ]);
-
-  const raw = [tracked, untracked].filter((s) => s.length > 0).join("");
-
+export const getDiff = async (path: string): Promise<DiffResult> => {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    throw new DiffError(
+      `failed to read diff file ${path}: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    );
+  }
   return { raw, files: parseUnifiedDiff(raw) };
 };
 

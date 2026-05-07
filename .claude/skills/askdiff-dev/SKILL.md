@@ -5,20 +5,147 @@ user-invocable: true
 allowed-tools: Bash
 ---
 
-Local-development variant of `/askdiff`. Starts the WS server **and**
-the browser UI's Vite dev server (with HMR). Vite is configured to
+Local-development variant of `/askdiff`. Starts the WS server **and** the
+browser UI's Vite dev server (with HMR), and exercises the in-repo
+TypeScript instead of the published npm package. Vite is configured to
 proxy `/ws` to the WS server, so the UI uses the same same-origin
 `new WebSocket('ws://host/ws')` URL in dev as in prod. The
 `ASKDIFF_DEV_WS_TARGET` env var tells Vite which port to forward to.
 
-Use this when editing `packages/ui-browser` and you want changes to
-reload instantly instead of rebuilding the npm package.
+Use this when editing `packages/server` or `packages/ui-browser` and you
+want changes to reload instantly instead of rebuilding/republishing.
 
-Run this as a single Bash command so discovered values survive into the
-launch:
+> **Keep Step 1–3 in sync with `.claude/skills/askdiff/SKILL.md`.** The
+> diff-resolution flow (interpret → git → temp file → label) must behave
+> identically in both skills; only Step 4 (launch) differs. If you change
+> the table or the bash blocks below, change them in the user-facing
+> `askdiff` skill too.
+
+## Step 1 — figure out which diff the user wants
+
+Look at the message that invoked this skill. Anything after `/askdiff-dev`
+is the user's diff description (may be empty).
+
+| User said | git command | Suggested label |
+|---|---|---|
+| `/askdiff-dev` (no args) | working tree — see Step 2 | `Working tree` |
+| `/askdiff-dev last commit` | `git diff HEAD~1 HEAD` | `HEAD~1..HEAD` |
+| `/askdiff-dev last 3 commits` | `git diff HEAD~3 HEAD` | `HEAD~3..HEAD` |
+| `/askdiff-dev the 5th latest commit` | `git diff HEAD~5 HEAD~4` | `HEAD~5..HEAD~4` |
+| `/askdiff-dev current branch against feature/test` | `git diff feature/test...HEAD` (three-dot, PR semantics) | `feature/test…HEAD` |
+| `/askdiff-dev main vs my branch` | `git diff main...HEAD` | `main…HEAD` |
+| `/askdiff-dev abc123 vs def456` | `git diff abc123 def456` | `abc123..def456` |
+| `/askdiff-dev staged` | `git diff --cached` | `staged` |
+
+Defaults when the user is ambiguous:
+- "branch X against branch Y" / "X vs Y" between two named refs ⇒ three-dot
+  (`git diff X...Y`) — matches how GitHub renders PRs.
+- Two arbitrary commits ⇒ two-dot (`git diff A B`).
+- "Nth latest commit" ⇒ that single commit's changes
+  (`git diff HEAD~N HEAD~(N-1)`).
+
+### When the description is vague
+
+If the description doesn't fit the table — e.g. "the commit where I added
+the favicon", "the last commit by my coworker David", "where we ripped out
+the old auth code", "the commit that broke CI last week" — pin down a
+single commit with the ladder below, then diff `<sha>^..<sha>` (same shape
+as the "Nth latest commit" pattern). Try in order until exactly one commit
+matches; if several match, pick the most recent and **tell the user which
+one you chose**; if none match, stop and ask — do not guess.
+
+1. **Author.** "by <name>", "<name>'s last", "by my coworker":
+   ```bash
+   git log --author=<pattern> -i -1 --format='%H %an %s'
+   ```
+
+2. **Commit message.** "the migration commit", "where I bumped deps":
+   ```bash
+   git log --grep=<keyword> -i -1 --format='%H %s'
+   ```
+
+3. **Diff content.** "where I added/removed/touched <thing>". `-S` matches
+   when a string's count changed in any file; `-G` is a regex over the
+   diff text:
+   ```bash
+   git log -S"<distinctive-string>" -1 --format='%H %s'
+   git log -G"<regex>" -1 --format='%H %s'
+   ```
+
+4. **File history.** When you can identify the file but not the commit
+   (e.g. "where the homepage was added" — search the working tree for a
+   plausible path first, then ask git):
+   ```bash
+   git ls-files | grep -i <hint>                                     # find candidate path
+   git log --follow -1 --format='%H %s' -- <path>                    # most recent touch
+   git log --follow --diff-filter=A -1 --format='%H %s' -- <path>    # commit that introduced it
+   ```
+
+Once a SHA is in hand, build the label as `<short-sha>: <one-line gloss>`
+(e.g. `d0b332b: add favicon`) and use `git diff <sha>^ <sha>` as the
+diff command. If the user's count and description disagree (e.g. "my 3rd
+previous commit, where I added a favicon" but the favicon is at HEAD~2),
+trust the description over the count and **flag the off-by-one to the
+user** so they know what you picked.
+
+**Validate every ref first.** Run `git rev-parse --verify <ref>^{commit}` for
+each ref the user named directly. If any fails, stop and tell the user
+which ref didn't resolve — do not launch the server. (Refs returned by the
+search ladder are already validated by virtue of `git log` finding them.)
+
+## Step 2 — write the diff to a temp file
+
+```bash
+diff_file=$(mktemp /tmp/askdiff-diff.XXXXXX)
+```
+
+(macOS `mktemp` only substitutes trailing X's, so the template can't have
+a `.diff` suffix. The server doesn't care about the extension.)
+
+**Working tree (no description).** Untracked files don't appear in
+`git diff HEAD`, so we union them in via `--no-index`:
+
+```bash
+{
+  git -C "$project_cwd" diff HEAD --no-color
+  git -C "$project_cwd" ls-files --others --exclude-standard -z \
+    | while IFS= read -r -d '' f; do
+        git -C "$project_cwd" diff --no-index --no-color -- /dev/null "$f" || true
+      done
+} > "$diff_file"
+```
+
+(In an empty repo with no HEAD, replace `HEAD` with the empty-tree SHA
+`4b825dc642cb6eb9a060e54bf8d69288fbee4904`.)
+
+**Description path.** Just run the resolved command:
+
+```bash
+git -C "$project_cwd" diff <args> --no-color > "$diff_file"
+```
+
+For the description path, if the resulting file is empty, **stop** — tell the
+user the requested diff is empty and don't launch. The working-tree path
+*can* legitimately be empty (clean tree); launch anyway and the UI will
+show "No changes."
+
+## Step 3 — pick a short label
+
+Use the "Suggested label" column above. For the working-tree case, use
+`Working tree`. Keep it under ~40 chars. This becomes `ASKDIFF_DIFF_LABEL`.
+
+## Step 4 — launch (in-repo)
+
+Run as a single Bash command so the discovered values survive into the
+launch. Substitute `EXTRA_DIFF_FILE` and `EXTRA_DIFF_LABEL` literally with
+the values from Step 2/3.
 
 ```
 set +e
+
+# Filled in by Step 2/3.
+EXTRA_DIFF_FILE=""
+EXTRA_DIFF_LABEL=""
 
 # 1. Free port for the WS server (default 7837, bump until free).
 port=7837
@@ -36,8 +163,14 @@ if [ -f "$session_file" ]; then
   [ -n "$manifest_cwd" ] && project_cwd="$manifest_cwd"
 fi
 
-# 3. Start the WS server.
-cd "$project_cwd" && PORT=$port ASKDIFF_SESSION_ID="$session_id" ASKDIFF_PROJECT_CWD="$project_cwd" nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
+# 3. Start the WS server (in-repo via tsx).
+cd "$project_cwd" \
+  && PORT=$port \
+     ASKDIFF_SESSION_ID="$session_id" \
+     ASKDIFF_PROJECT_CWD="$project_cwd" \
+     ASKDIFF_DIFF_FILE="$EXTRA_DIFF_FILE" \
+     ASKDIFF_DIFF_LABEL="$EXTRA_DIFF_LABEL" \
+     nohup pnpm --filter @askdiff/server exec tsx src/main.ts > /tmp/askdiff.log 2>&1 &
 disown
 sleep 1.5
 head -5 /tmp/askdiff.log
@@ -81,6 +214,7 @@ echo "UI: $ui_url"
 Then tell the user:
 - the WS server port (visible in the `listening on ws://...` line)
 - the resolved Claude session ID (from the `claude session:` line)
+- the diff label (always set)
 - the WS log file: `/tmp/askdiff.log`
 - the Vite log file: `/tmp/askdiff-ui.log`
 - the UI URL (last echoed line) — already opened in their default browser
