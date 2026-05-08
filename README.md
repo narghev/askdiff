@@ -33,6 +33,7 @@ npx -y askdiff install-skill --global
 /askdiff last commit                                                    # HEAD~1..HEAD
 /askdiff main vs feature/x                                              # main…HEAD (PR-style)
 /askdiff David's latest commit where he removed the xmpp integration    # author + content search
+/askdiff last commit attached to the session where we discussed auth    # send asks to a different past session
 ```
 
 That's it. No API key, no config. The browser opens to a syntax-highlighted diff; comments stream back as the model thinks.
@@ -63,6 +64,10 @@ So your question becomes a real turn in the running session's transcript:
   <tr>
     <td><a href="#diff-selection">Diff selection</a></td>
     <td>Describe which diff to review in plain English — working tree, last commit, branch comparisons, arbitrary refs.</td>
+  </tr>
+  <tr>
+    <td><a href="#session-selection">Session selection</a></td>
+    <td>By default asks flow into the invoking session. Add "in our session about X" or "session &lt;uuid&gt;" to attach to a different past session — the one that originally wrote the code, for example.</td>
   </tr>
   <tr>
     <td><a href="#inline-comments">Inline comments</a></td>
@@ -108,6 +113,31 @@ and the previous server is killed, the diff is recomputed, and the
 existing browser tab auto-reconnects on the same port. For working-tree
 diffs, an amber banner appears if any reviewed file has been edited
 since the diff was captured, prompting you to re-run `/askdiff`.
+
+### Session selection
+
+By default `/askdiff` attaches to the **invoking** session — the one running
+the skill. Asks become real turns in that session's transcript.
+
+If the diff you're reviewing was written (or investigated) in a *different*
+past session, describe that session in natural language and asks will flow
+there instead. The original "ask in the same session that wrote the code"
+promise still holds — it's just that the session that wrote the code might
+not be the session you're currently in:
+
+| You type | What attaches |
+|---|---|
+| `/askdiff last commit` | invoking session (default — same as today) |
+| `/askdiff last commit in our session about pricing rules` | searches sessions in this project for "pricing rules" mentions; the dominant match attaches |
+| `/askdiff abc123 vs def456 attached to the session that authored it` | Claude builds keyword needles from the diff; matches that to a past session |
+| `/askdiff session 322bc90a` | exact UUID prefix; resolves to a specific session |
+| `/askdiff in session 322bc90a-714f-41b7-914e-109404e46072` | full UUID |
+
+Search is bounded: only sessions touched in the last 30 days, top 5 candidates
+by hit count, and `command grep -Ff` over the JSONL transcripts so it stays
+fast and uses zero LLM tokens. If multiple sessions match comparably, askdiff
+asks you which to use rather than guessing. If nothing matches, it falls back
+to the invoking session.
 
 ### Inline comments
 
