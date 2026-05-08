@@ -16,15 +16,19 @@ the file, the conversation, and why it made the change.
 
 ## Quickstart
 
+**1. One-time skill install** (project-scoped — installs into `<git-root>/.claude/`):
+
 ```bash
-# 1. One-time skill install (project-scoped — installs into <git-root>/.claude/)
 cd /path/to/your/project
 npx -y askdiff install-skill
 
 # Or, install user-level (available from any project):
 npx -y askdiff install-skill --global
+```
 
-# 2. From a Claude Code session in that project
+**2. From a Claude Code session in that project:**
+
+```
 /askdiff                                                                # working-tree changes
 /askdiff last commit                                                    # HEAD~1..HEAD
 /askdiff main vs feature/x                                              # main…HEAD (PR-style)
