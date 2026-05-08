@@ -50,15 +50,20 @@ async function main(): Promise<void> {
   program
     .command("install-skill")
     .description(
-      "Install the askdiff Claude Code skill into ~/.claude/skills/askdiff/",
+      "Install the askdiff Claude Code skill into the current project (default: <git-root>/.claude/skills/askdiff/). Pass --global to install user-level instead.",
     )
     .option(
       "--force",
       "overwrite an existing skill file without prompting",
       false,
     )
-    .action(async (opts: { force: boolean }) => {
-      await installSkill(opts.force);
+    .option(
+      "--global",
+      "install into the user-level config dir (~/.claude/skills/askdiff/) instead of the current project",
+      false,
+    )
+    .action(async (opts: { force: boolean; global: boolean }) => {
+      await installSkill(opts.force, opts.global);
     });
 
   await program.parseAsync(process.argv);
@@ -107,7 +112,7 @@ async function runServer(opts: RunOptions): Promise<void> {
   process.on("SIGTERM", () => shutdown(httpServer, "SIGTERM"));
 }
 
-async function installSkill(force: boolean): Promise<void> {
+async function installSkill(force: boolean, useGlobal: boolean): Promise<void> {
   const source = join(__dirname, "skill.md");
   try {
     await stat(source);
@@ -117,8 +122,13 @@ async function installSkill(force: boolean): Promise<void> {
     );
   }
 
-  const configDir = process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
-  const targetDir = join(configDir, "skills", PROJECT_NAME);
+  const targetDir = useGlobal
+    ? join(
+        process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude"),
+        "skills",
+        PROJECT_NAME,
+      )
+    : join(await resolveProjectRoot(process.cwd()), ".claude", "skills", PROJECT_NAME);
   const target = join(targetDir, "SKILL.md");
 
   const exists = await stat(target)
@@ -133,7 +143,36 @@ async function installSkill(force: boolean): Promise<void> {
   await mkdir(targetDir, { recursive: true });
   await copyFile(source, target);
   console.log(`installed askdiff skill at ${target}`);
-  console.log("invoke /askdiff from any Claude Code session.");
+  if (useGlobal) {
+    console.log("invoke /askdiff from any Claude Code session.");
+  } else {
+    console.log(
+      "invoke /askdiff from any Claude Code session inside this project. (Project skills override same-named user-level skills.)",
+    );
+  }
+}
+
+// Walk up from `start` looking for a `.git` directory; that's the project
+// root for the default project-level install. Errors out rather than
+// guessing a fallback — installing into a random directory is worse than
+// refusing.
+async function resolveProjectRoot(start: string): Promise<string> {
+  let dir = start;
+  // Bound the walk by parent-equality so we stop at the filesystem root.
+  for (;;) {
+    const gitDir = join(dir, ".git");
+    const found = await stat(gitDir)
+      .then(() => true)
+      .catch(() => false);
+    if (found) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) {
+      throw new Error(
+        `install-skill needs a project root, but no .git directory was found at or above ${start}. cd into a git repo (or run \`git init\`) and re-run, or pass --global to install user-level instead.`,
+      );
+    }
+    dir = parent;
+  }
 }
 
 function shutdown(server: HttpServer, signal: string): void {

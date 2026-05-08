@@ -17,18 +17,21 @@ the file, the conversation, and why it made the change.
 ## Quickstart
 
 ```bash
-# 1. One-time skill install
+# 1. One-time skill install (project-scoped — installs into <git-root>/.claude/)
+cd /path/to/your/project
 npx -y askdiff install-skill
 
-# 2. From any Claude Code session
+# Or, install user-level (available from any project):
+npx -y askdiff install-skill --global
+
+# 2. From a Claude Code session in that project
 /askdiff                                                                # working-tree changes
 /askdiff last commit                                                    # HEAD~1..HEAD
 /askdiff main vs feature/x                                              # main…HEAD (PR-style)
 /askdiff David's latest commit where he removed the xmpp integration    # author + content search
 ```
 
-That's it. No API key, no global install, no config. The browser opens
-to a syntax-highlighted diff; comments stream back as the model thinks.
+That's it. No API key, no config. The browser opens to a syntax-highlighted diff; comments stream back as the model thinks.
 
 ## Why askdiff?
 
@@ -142,10 +145,15 @@ Run `askdiff --help` for the full list.
 
 When you next run `/askdiff` and a newer version is on npm, the skill
 prints `UPDATE_AVAILABLE: pinned=X latest=Y` and asks whether to
-upgrade or proceed. Upgrade is one command:
+upgrade or proceed. Upgrade is one command — at the same scope you
+originally installed:
 
 ```bash
+# project-local install (the default)
 npx -y askdiff@latest install-skill --force
+
+# user-level install (run with --global)
+npx -y askdiff@latest install-skill --global --force
 ```
 
 This rewrites the skill to pin to the new version. The first
@@ -153,8 +161,52 @@ subsequent `/askdiff` runs the upgraded CLI.
 
 ## Skills shipped
 
-`install-skill` writes one file: `~/.claude/skills/askdiff/SKILL.md`.
-That's the entire surface area in your CC config.
+`install-skill` writes one file: `<git-root>/.claude/skills/askdiff/SKILL.md`
+by default — scoped to the current project. That's the entire surface
+area in your CC config for that repo. The command walks up from `cwd`
+looking for a `.git` directory and refuses (rather than guessing a path)
+if none is found.
+
+```bash
+cd /path/to/your/project           # default install scope
+npx -y askdiff install-skill       # → <git-root>/.claude/skills/askdiff/SKILL.md
+```
+
+To install user-level instead — making `/askdiff` available from any
+Claude Code session you start — pass `--global`:
+
+```bash
+npx -y askdiff install-skill --global
+# → ~/.claude/skills/askdiff/SKILL.md
+```
+
+Project skills override same-named user skills, so it's safe to have
+both: a global install for general use, plus a project install pinning
+this repo to a specific askdiff version.
+
+> **Upgrading from `0.2.x`?** The old version installed user-level by
+> default. To preserve that behavior on upgrade, run
+> `npx -y askdiff@latest install-skill --global --force`. Otherwise the
+> upgrade will install project-locally and leave your old user-level
+> skill stale.
+
+### Uninstalling
+
+Uninstall is a single `rm` — there's intentionally no `uninstall-skill`
+command. Delete whichever scope you installed:
+
+```bash
+# project-local install (the default)
+rm -rf <git-root>/.claude/skills/askdiff
+
+# user-level install (--global)
+rm -rf ~/.claude/skills/askdiff
+```
+
+It's safe to `rm -rf` the whole `skills/askdiff/` directory — askdiff
+keeps no other state under `~/.claude` or your project. Anything left
+in `/tmp/askdiff*` is session-scoped scratch and clears itself out
+within the WS server's idle-shutdown window.
 
 In this repo (for contributors) there is one more:
 
@@ -227,9 +279,11 @@ against a new server (reload the browser tab) or a hung
 `claude --resume` subprocess (check `ps aux | grep claude`).
 
 **`/askdiff` doesn't appear in Claude Code's skill picker**
-Run `npx -y askdiff install-skill` to write
-`~/.claude/skills/askdiff/SKILL.md`. If it's there but still missing,
-restart Claude Code or run `/reload-plugins`.
+Run `npx -y askdiff install-skill` from inside the project (writes
+`<git-root>/.claude/skills/askdiff/SKILL.md`), or
+`npx -y askdiff install-skill --global` to install user-level
+(`~/.claude/skills/askdiff/SKILL.md`). If the file is there but still
+missing from the picker, restart Claude Code or run `/reload-plugins`.
 
 ## License
 

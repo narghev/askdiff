@@ -270,9 +270,11 @@ echo "PID: $new_pid (saved to $pid_file)"
 
 - **"Upgrade to Y" (Recommended)**: run
   `npx -y askdiff@latest install-skill --force` — this overwrites the
-  user's `~/.claude/skills/askdiff/SKILL.md` with the version bundled
-  in `Y` (which has its own pin to `Y`). Then re-invoke `/askdiff` so
-  the now-updated skill body picks up the new version.
+  current project's `.claude/skills/askdiff/SKILL.md` with the version
+  bundled in `Y` (which has its own pin to `Y`). If the user installed
+  user-level, instead run `npx -y askdiff@latest install-skill --global
+  --force`. Then re-invoke `/askdiff` so the now-updated skill body
+  picks up the new version.
 - **"Keep X this time"**: re-run the bash above with
   `ASKDIFF_SKIP_UPDATE_CHECK=1` prepended. The skill will skip the
   check and launch the pinned version. They'll be re-prompted on the
