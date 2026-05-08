@@ -21,7 +21,6 @@ export const CommentWidget = ({ file, fromLine, toLine, chunk, asks }: Props) =>
   const [draft, setDraft] = useState("");
   const startAsk = useStore((s) => s.startAsk);
   const closeComposer = useStore((s) => s.closeComposer);
-  const sessionId = useStore((s) => s.sessionId);
   const conn = useStore((s) => s.conn);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -35,8 +34,7 @@ export const CommentWidget = ({ file, fromLine, toLine, chunk, asks }: Props) =>
     if (!hasAsksOnMount.current) textareaRef.current?.focus();
   }, []);
 
-  const canSend =
-    draft.trim().length > 0 && sessionId !== null && conn.state === "open";
+  const canSend = draft.trim().length > 0 && conn.state === "open";
 
   const submit = () => {
     const question = draft.trim();
@@ -89,11 +87,6 @@ export const CommentWidget = ({ file, fromLine, toLine, chunk, asks }: Props) =>
           }}
         />
         <div className="flex items-center justify-end gap-2">
-          {sessionId === null && (
-            <span className="mr-auto text-xs text-destructive">
-              Configure a Claude session to send asks.
-            </span>
-          )}
           <Button size="sm" disabled={!canSend} onClick={submit}>
             <Send className="mr-1 size-3.5" />
             Send

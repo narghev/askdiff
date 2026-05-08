@@ -24,9 +24,13 @@ export const sessionExists = async (cwd: string, sessionId: string): Promise<boo
   }
 }
 
-export const resolveInitialSessionId = async (cwd: string): Promise<string | null> => {
+export const resolveInitialSessionId = async (cwd: string): Promise<string> => {
   const envSession = process.env[`${PROJECT_NAME_UPPER_CASE}_SESSION_ID`];
-  if (!envSession) return null;
+  if (!envSession) {
+    throw new Error(
+      `${PROJECT_NAME_UPPER_CASE}_SESSION_ID is required. The askdiff skill always sets it; if you're running the server by hand, set the env var or pass --session.`,
+    );
+  }
 
   // sessionExists throws on malformed UUID; here we additionally treat
   // "valid UUID but no JSONL on disk" as a hard startup failure so the

@@ -10,15 +10,14 @@ import { ClaudeCliError, streamAnswer } from "./claude";
 import { DiffError, getDiff } from "./util/diff";
 import { checkStaleness } from "./util/staleness";
 import { PROTOCOL_VERSION, parseClientMessage, type AskMessage } from "@askdiff/protocol";
-import { DEFAULT_HOST, DEFAULT_IDLE_SHUTDOWN_MS, PROJECT_NAME } from "./util/constants";
-import { isValidSessionId, sessionExists } from "./util/session";
-import { broadcast, send } from "./util/ws";
+import { DEFAULT_HOST, DEFAULT_IDLE_SHUTDOWN_MS } from "./util/constants";
+import { send } from "./util/ws";
 
 export const WS_PATH = "/ws";
 
 export interface ServerState {
   cwd: string;
-  claudeSessionId: string | null;
+  claudeSessionId: string;
   clients: Set<WebSocket>;
   diffFile: string;
   diffLabel?: string;
@@ -30,7 +29,7 @@ export interface ServerState {
 
 export interface StartServerOptions {
   cwd: string;
-  sessionId: string | null;
+  sessionId: string;
   // Path to a unified diff file the skill produced (e.g. via `git diff
   // HEAD~1 HEAD > $diffFile`). The server treats this as the single source
   // of truth — it never invokes git itself.
@@ -90,15 +89,6 @@ async function handleAsk(
     send(ws, { type: "error", id: ask.id, message: `duplicate ask id: ${ask.id}` });
     return;
   }
-  if (!state.claudeSessionId) {
-    send(ws, {
-      type: "error",
-      id: ask.id,
-      message:
-        `No Claude Code session configured. Start ${PROJECT_NAME} from inside a session, or send \`set_session\` with a valid session_id.`,
-    });
-    return;
-  }
 
   const controller = new AbortController();
   controllers.set(ask.id, controller);
@@ -123,29 +113,6 @@ async function handleAsk(
   } finally {
     controllers.delete(ask.id);
   }
-}
-
-async function handleSetSession(
-  ws: WebSocket,
-  state: ServerState,
-  requestedId: string,
-): Promise<void> {
-  if (!isValidSessionId(requestedId)) {
-    send(ws, {
-      type: "error",
-      message: `invalid session_id: ${requestedId} (expected UUID)`,
-    });
-    return;
-  }
-  if (!(await sessionExists(state.cwd, requestedId))) {
-    send(ws, {
-      type: "error",
-      message: `session ${requestedId} not found under project ${state.cwd}`,
-    });
-    return;
-  }
-  state.claudeSessionId = requestedId;
-  broadcast(state, { type: "session", session_id: requestedId });
 }
 
 function errorMessage(err: unknown): string {
@@ -218,6 +185,8 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
       project: opts.cwd,
     });
 
+    // Read-only advertisement: tell the UI which session asks will land
+    // in. The session is locked at startup; no runtime change path.
     send(ws, { type: "session", session_id: state.claudeSessionId });
 
     void sendDiff(ws, state);
@@ -254,9 +223,6 @@ export async function startServer(opts: StartServerOptions): Promise<ServerHandl
           return;
         case "ping":
           send(ws, { type: "pong" });
-          return;
-        case "set_session":
-          void handleSetSession(ws, state, msg.session_id);
           return;
       }
     });

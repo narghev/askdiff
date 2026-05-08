@@ -1,6 +1,5 @@
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
-import { SessionMenu } from "./SessionMenu";
 import { ThemeToggle } from "./ThemeToggle";
 
 const ConnectionDot = () => {
@@ -19,10 +18,16 @@ const ConnectionDot = () => {
   );
 };
 
+// Truncate to a git-short-sha-style ID. Full UUID lives in the badge's
+// title attribute for hover/copy.
+const truncSession = (sid: string) =>
+  sid.length > 12 ? `${sid.slice(0, 4)}…${sid.slice(-4)}` : sid;
+
 export const TopBar = () => {
   const project = useStore((s) => s.project);
   const protocol = useStore((s) => s.protocol);
   const diffLabel = useStore((s) => s.diff?.label);
+  const sessionId = useStore((s) => s.sessionId);
 
   // Always advertise *what* the user is reviewing — when the skill didn't
   // pre-compute a diff, the server falls back to the working tree, so that
@@ -50,9 +55,17 @@ export const TopBar = () => {
         </div>
       )}
       <div className="ml-auto flex items-center gap-3">
+        {sessionId && (
+          <Badge
+            variant="outline"
+            className="font-mono text-[0.65rem]"
+            title={`asks land in Claude Code session ${sessionId}`}
+          >
+            session {truncSession(sessionId)}
+          </Badge>
+        )}
         <ThemeToggle />
         <ConnectionDot />
-        <SessionMenu />
       </div>
     </header>
   );

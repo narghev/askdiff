@@ -53,9 +53,7 @@ async function main(): Promise<void> {
       );
       console.log(`  protocol: ${PROTOCOL_VERSION}`);
       console.log(`  project:  ${cwd}`);
-      console.log(
-        `  claude session: ${initialSession ?? "(none — send set_session before asking)"}`,
-      );
+      console.log(`  claude session: ${initialSession}`);
       console.log(`  diff file:  ${diffFile}`);
       if (diffLabel) console.log(`  diff label: ${diffLabel}`);
       if (volatile) console.log(`  diff kind:  volatile (staleness checks enabled)`);
