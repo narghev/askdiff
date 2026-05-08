@@ -88,6 +88,17 @@ previous commit, where I added a favicon" but the favicon is at HEAD~2),
 trust the description over the count and **flag the off-by-one to the
 user** so they know what you picked.
 
+**Stay within git — never read file contents to disambiguate.** The four
+steps above use git only: `git log` (with `--author`, `--grep`, `-S`,
+`-G`, `--follow`, `--diff-filter`) and `git ls-files | grep` on
+path names. **Do not** `cat`/`head` files, **do not** `grep -r` or `rg`
+into working-tree contents, **do not** Read the contents of candidate
+files. If the four-step ladder doesn't pin down a unique commit, **stop
+and ask the user via `AskUserQuestion`** — surface the candidates the
+ladder turned up and let the user pick, or ask for a more specific
+description. Reading file contents during search is a token-cost cliff
+that requires explicit user consent.
+
 **Validate every ref first.** Run `git rev-parse --verify <ref>^{commit}` for
 each ref the user named directly. If any fails, stop and tell the user
 which ref didn't resolve — do not launch the server. (Refs returned by the
