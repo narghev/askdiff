@@ -299,6 +299,16 @@ Run `npx -y askdiff install-skill` from inside the project (writes
 (`~/.claude/skills/askdiff/SKILL.md`). If the file is there but still
 missing from the picker, restart Claude Code or run `/reload-plugins`.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=narghev%2Faskdiff&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=narghev/askdiff&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=narghev/askdiff&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=narghev/askdiff&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## License
 
 [MIT](./LICENSE) © [narghev](https://github.com/narghev)
