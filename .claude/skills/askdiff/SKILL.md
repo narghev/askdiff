@@ -206,19 +206,10 @@ if [ -f "$pid_file" ]; then
   rm -f "$pid_file"
 fi
 
-# 2. Update check. Skipped if explicitly disabled, or if pinned to
-#    'latest' (in-repo dev case where every run already pulls newest).
-#    Network failures are silently ignored — never block on a flaky DNS.
-if [ -z "$ASKDIFF_SKIP_UPDATE_CHECK" ] && [ "$ASKDIFF_VERSION" != "latest" ]; then
-  latest=$(curl -fsSL --max-time 2 https://registry.npmjs.org/askdiff/latest 2>/dev/null \
-    | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -1)
-  if [ -n "$latest" ] && [ "$latest" != "$ASKDIFF_VERSION" ]; then
-    echo "UPDATE_AVAILABLE: pinned=$ASKDIFF_VERSION latest=$latest"
-    exit 0
-  fi
-fi
-
-# 3. Launch. Pass --port if we have one to reuse; otherwise the CLI picks 7837+.
+# 2. Launch. Pass --port if we have one to reuse; otherwise the CLI picks 7837+.
+#    The update check is intentionally NOT done here — it would block the
+#    launch on an npm registry round-trip. We do it after the server is
+#    up (step 4 below) and just print a passive notice.
 port_arg=""
 [ -n "$saved_port" ] && port_arg="--port $saved_port"
 
@@ -238,7 +229,7 @@ for _ in $(seq 1 60); do
   sleep 0.25
 done
 
-# 4. Persist <pid> <port> so the next /askdiff invocation in this session
+# 3. Persist <pid> <port> so the next /askdiff invocation in this session
 #    can find and replace this server (the file path is session-keyed in
 #    Step 2's preamble).
 port=$(sed -nE 's|.*listening on http://localhost:([0-9]+).*|\1|p' "$log_file" | head -1)
@@ -262,26 +253,29 @@ fi
 echo "UI: $url"
 echo "Log: $log_file"
 echo "PID: $new_pid (saved to $pid_file)"
+
+# 4. Update check. Runs *after* the server is up and the URL has been
+#    printed, so it never blocks launch. Skipped if explicitly disabled,
+#    or if pinned to 'latest' (in-repo dev case). Network failures are
+#    silently ignored — never block on a flaky DNS. If a newer version
+#    exists we print a passive notice with the upgrade command; we do
+#    NOT prompt or interrupt — the user already has their UI.
+if [ -z "$ASKDIFF_SKIP_UPDATE_CHECK" ] && [ "$ASKDIFF_VERSION" != "latest" ]; then
+  latest=$(curl -fsSL --max-time 2 https://registry.npmjs.org/askdiff/latest 2>/dev/null \
+    | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -1)
+  if [ -n "$latest" ] && [ "$latest" != "$ASKDIFF_VERSION" ]; then
+    echo ""
+    echo "── A new version of askdiff is available ──"
+    echo "  installed: $ASKDIFF_VERSION"
+    echo "  latest:    $latest"
+    echo "  to update: npx -y askdiff@latest install-skill --force"
+    echo "             (add --global if you installed user-level)"
+  fi
+fi
 ```
 
-**If the output is the single line `UPDATE_AVAILABLE: pinned=X latest=Y`**
-(no listening URL printed, no `UI:` line), an upgrade is available. Use
-`AskUserQuestion` to present two options:
-
-- **"Upgrade to Y" (Recommended)**: run
-  `npx -y askdiff@latest install-skill --force` — this overwrites the
-  current project's `.claude/skills/askdiff/SKILL.md` with the version
-  bundled in `Y` (which has its own pin to `Y`). If the user installed
-  user-level, instead run `npx -y askdiff@latest install-skill --global
-  --force`. Then re-invoke `/askdiff` so the now-updated skill body
-  picks up the new version.
-- **"Keep X this time"**: re-run the bash above with
-  `ASKDIFF_SKIP_UPDATE_CHECK=1` prepended. The skill will skip the
-  check and launch the pinned version. They'll be re-prompted on the
-  next `/askdiff`.
-
-**Otherwise (no UPDATE_AVAILABLE line, or check failed silently)**, the
-launch already happened. Tell the user:
+The launch always happens — there's no halt-and-prompt branch anymore.
+Tell the user:
 - the WS server URL (the `listening on http://...` line)
 - the resolved Claude session ID (the `claude session:` line)
 - the diff label (always set)
@@ -289,6 +283,10 @@ launch already happened. Tell the user:
 - the UI URL (last echoed `UI:` line) — opened on first launch; on a
   refresh-style re-invocation (the `Refreshed:` line is present), the
   user's existing tab will reconnect automatically
+- **if the output ends with the "A new version of askdiff is available"
+  block**, surface that to the user verbatim — the upgrade command is
+  already on a copyable line, no `AskUserQuestion` needed. They can run
+  it whenever they want; their current `/askdiff` is already working.
 
 If the `claude session:` line says `(none ...)`, the parent CC manifest
 was not found at `$session_file`. That usually means askdiff was

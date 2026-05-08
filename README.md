@@ -143,21 +143,31 @@ Run `askdiff --help` for the full list.
 
 ## Updating
 
-When you next run `/askdiff` and a newer version is on npm, the skill
-prints `UPDATE_AVAILABLE: pinned=X latest=Y` and asks whether to
-upgrade or proceed. Upgrade is one command — at the same scope you
-originally installed:
+The skill asynchronously hits the npm registry after launching askdiff. If a newer version is available, you'll see a passive notice
+*after* the launch with the upgrade command pre-formatted:
+
+```
+── A new version of askdiff is available ──
+  installed: 0.3.0
+  latest:    0.3.1
+  to update: npx -y askdiff@latest install-skill --force
+             (add --global if you installed user-level)
+```
+
+You're free to ignore it — the version you have is still working in
+front of you. When you do want to upgrade, run the printed command at
+the same scope you installed:
 
 ```bash
 # project-local install (the default)
 npx -y askdiff@latest install-skill --force
 
-# user-level install (run with --global)
+# user-level install
 npx -y askdiff@latest install-skill --global --force
 ```
 
-This rewrites the skill to pin to the new version. The first
-subsequent `/askdiff` runs the upgraded CLI.
+The first subsequent `/askdiff` runs the upgraded CLI. Set
+`ASKDIFF_SKIP_UPDATE_CHECK=1` to suppress the network call entirely.
 
 ## Skills shipped
 
