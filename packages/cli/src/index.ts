@@ -92,9 +92,7 @@ async function runServer(opts: RunOptions): Promise<void> {
       console.log(`${PROJECT_NAME} server listening on ${url}`);
       console.log(`  protocol: ${PROTOCOL_VERSION}`);
       console.log(`  project:  ${resolved.cwd}`);
-      console.log(
-        `  claude session: ${resolved.session ?? "(none — set ASKDIFF_SESSION_ID or use --session)"}`,
-      );
+      console.log(`  claude session: ${resolved.session}`);
       console.log(`  diff file:  ${resolved.diffFile}`);
       if (resolved.diffLabel) console.log(`  diff label: ${resolved.diffLabel}`);
       if (resolved.volatile) console.log(`  diff kind:  volatile (staleness checks enabled)`);
@@ -185,7 +183,7 @@ interface ResolvedOptions {
   port: number;
   host: string;
   open: boolean;
-  session: string | null;
+  session: string;
   cwd: string;
   diffFile: string;
   diffLabel?: string;
@@ -204,8 +202,12 @@ async function resolveOptions(opts: RunOptions): Promise<ResolvedOptions> {
   const session =
     opts.session ??
     process.env["ASKDIFF_SESSION_ID"] ??
-    fromManifest?.sessionId ??
-    null;
+    fromManifest?.sessionId;
+  if (!session) {
+    throw new Error(
+      "Claude Code session is required. Pass --session <uuid>, set ASKDIFF_SESSION_ID, or run from inside a Claude Code session so the parent manifest is found.",
+    );
+  }
 
   const port = opts.port ?? (Number(process.env["PORT"]) || DEFAULT_PORT);
 

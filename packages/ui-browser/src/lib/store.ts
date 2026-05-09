@@ -37,6 +37,9 @@ type Store = {
   conn: ConnectionState;
   protocol?: string;
   project?: string;
+  // The Claude Code session this UI is attached to. Read-only — set
+  // once when the server's `session` message arrives, never mutated
+  // from the UI (there's no protocol surface for that anymore).
   sessionId: string | null;
 
   // diff
@@ -79,7 +82,7 @@ type Store = {
   setConn: (c: ConnectionState) => void;
   setProtocol: (p: string) => void;
   setProject: (p: string) => void;
-  setSessionId: (sid: string | null) => void;
+  setSessionId: (sid: string) => void;
   setDiff: (
     raw: string,
     files: DiffFile[],
@@ -106,7 +109,6 @@ type Store = {
   closeComposer: (file: string, fromLine: number) => void;
   startAsk: (input: AskInput) => string;
   cancel: (askId: string) => void;
-  setSession: (sid: string) => void;
 };
 
 const pickKnown = (
@@ -292,9 +294,5 @@ export const useStore = create<Store>((set, get) => ({
     set((s) => ({
       asks: { ...s.asks, [askId]: { ...ask, status: "cancelled" } },
     }));
-  },
-
-  setSession: (sid) => {
-    get()._send({ type: "set_session", session_id: sid });
   },
 }));

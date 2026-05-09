@@ -15,7 +15,6 @@ import type {
   PongMessageSchema,
   ServerMessageSchema,
   SessionMessageSchema,
-  SetSessionMessageSchema,
 } from "./schemas";
 
 export type DiffHunk = z.infer<typeof DiffHunkSchema>;
@@ -25,7 +24,6 @@ export type AskMessage = z.infer<typeof AskMessageSchema>;
 export type CancelMessage = z.infer<typeof CancelMessageSchema>;
 export type DiffRequestMessage = z.infer<typeof DiffRequestMessageSchema>;
 export type PingMessage = z.infer<typeof PingMessageSchema>;
-export type SetSessionMessage = z.infer<typeof SetSessionMessageSchema>;
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export type HelloMessage = z.infer<typeof HelloMessageSchema>;

@@ -16,7 +16,6 @@ import {
   PROTOCOL_VERSION,
   ServerMessageSchema,
   SessionMessageSchema,
-  SetSessionMessageSchema,
   parseClientMessage,
 } from "./schemas";
 
@@ -93,21 +92,12 @@ describe("PingMessageSchema", () => {
   });
 });
 
-describe("SetSessionMessageSchema", () => {
-  it("requires a non-empty session_id", () => {
-    expect(SetSessionMessageSchema.safeParse({ type: "set_session" }).success).toBe(false);
-    expect(SetSessionMessageSchema.safeParse({ type: "set_session", session_id: "" }).success).toBe(false);
-    expect(SetSessionMessageSchema.safeParse({ type: "set_session", session_id: "uuid" }).success).toBe(true);
-  });
-});
-
 describe("ClientMessageSchema (discriminated union)", () => {
   it.each([
     ["ask", { type: "ask", id: "q1", file: "f", from_line: 0, to_line: 0, chunk: "", question: "?" }],
     ["cancel", { type: "cancel", id: "q1" }],
     ["diff_request", { type: "diff_request" }],
     ["ping", { type: "ping" }],
-    ["set_session", { type: "set_session", session_id: "x" }],
   ])("accepts %s", (_label, msg) => {
     expect(ClientMessageSchema.safeParse(msg).success).toBe(true);
   });
@@ -315,18 +305,10 @@ describe("PongMessageSchema", () => {
 });
 
 describe("SessionMessageSchema", () => {
-  it("accepts a UUID session_id", () => {
-    expect(
-      SessionMessageSchema.safeParse({ type: "session", session_id: "abc" }).success,
-    ).toBe(true);
-  });
-
-  it("accepts an explicit null (no session configured)", () => {
-    expect(SessionMessageSchema.safeParse({ type: "session", session_id: null }).success).toBe(true);
-  });
-
-  it("rejects missing session_id field", () => {
+  it("requires a non-empty session_id", () => {
     expect(SessionMessageSchema.safeParse({ type: "session" }).success).toBe(false);
+    expect(SessionMessageSchema.safeParse({ type: "session", session_id: "" }).success).toBe(false);
+    expect(SessionMessageSchema.safeParse({ type: "session", session_id: "abc" }).success).toBe(true);
   });
 });
 
@@ -338,7 +320,7 @@ describe("ServerMessageSchema (discriminated union)", () => {
     ["done", { type: "done", id: "q1" }],
     ["error", { type: "error", message: "x" }],
     ["pong", { type: "pong" }],
-    ["session", { type: "session", session_id: null }],
+    ["session", { type: "session", session_id: "abc" }],
   ])("accepts %s", (_label, msg) => {
     expect(ServerMessageSchema.safeParse(msg).success).toBe(true);
   });

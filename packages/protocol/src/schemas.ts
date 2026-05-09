@@ -38,17 +38,11 @@ export const PingMessageSchema = z.object({
   type: z.literal("ping"),
 });
 
-export const SetSessionMessageSchema = z.object({
-  type: z.literal("set_session"),
-  session_id: z.string().min(1),
-});
-
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   AskMessageSchema,
   CancelMessageSchema,
   DiffRequestMessageSchema,
   PingMessageSchema,
-  SetSessionMessageSchema,
 ]);
 
 export const HelloMessageSchema = z.object({
@@ -99,9 +93,12 @@ export const PongMessageSchema = z.object({
   type: z.literal("pong"),
 });
 
+// Read-only — emitted once on connect so the UI can display "asks go to
+// this session." There is no client-side counterpart: session attachment
+// is locked in at server startup via ASKDIFF_SESSION_ID.
 export const SessionMessageSchema = z.object({
   type: z.literal("session"),
-  session_id: z.string().nullable(),
+  session_id: z.string().min(1),
 });
 
 export const ServerMessageSchema = z.discriminatedUnion("type", [

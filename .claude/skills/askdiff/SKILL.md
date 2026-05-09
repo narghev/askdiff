@@ -11,26 +11,38 @@ file. The server is intentionally git-illiterate — it only reads the file
 you produce and serves it to the browser. Skipping the file is a startup
 error.
 
-> **Keep Step 1–3 in sync with `.claude/skills/askdiff-dev/SKILL.md`.** The
-> diff-resolution flow (interpret → git → temp file → label) must behave
-> identically in both skills; only Step 4 (launch) differs. If you change
-> the table or the bash blocks below, change them in the dev skill too.
+> **Keep Steps 1–4 in sync with `.claude/skills/askdiff-dev/SKILL.md`.** The
+> diff-resolution and session-resolution flow (interpret → git → temp file
+> → label → pick session) must behave identically in both skills; only
+> Step 5 (launch) differs. If you change any block below — including the
+> session-resolution logic in Step 4 — change it in the dev skill too.
 
-## Step 1 — figure out which diff the user wants
+## Step 1 — figure out which diff the user wants (and which session)
 
-Look at the message that invoked this skill. Anything after `/askdiff` is the
-user's diff description (may be empty).
+Look at the message that invoked this skill. Anything after `/askdiff` is
+free-form natural language that may carry **two** kinds of information:
 
-| User said | git command | Suggested label |
+1. A **diff description** — what to diff (handled by the table/ladder
+   below). This part is what Step 2 turns into a `git diff` command.
+2. An optional **session hint** — which Claude session to attach to
+   (handled by the *Session hint* subsection at the end of this step,
+   then resolved in Step 4).
+
+Either or both may be empty. The diff-description part may be empty
+(working tree); the session hint defaults to "the invoking session" when
+absent. Treat them independently — first identify and set aside the
+session hint, then pass the rest to the diff resolution below.
+
+| `diff_description` | git command | Suggested label |
 |---|---|---|
-| `/askdiff` (no args) | working tree — see Step 2 | `Working tree` |
-| `/askdiff last commit` | `git diff HEAD~1 HEAD` | `HEAD~1..HEAD` |
-| `/askdiff last 3 commits` | `git diff HEAD~3 HEAD` | `HEAD~3..HEAD` |
-| `/askdiff the 5th latest commit` | `git diff HEAD~5 HEAD~4` | `HEAD~5..HEAD~4` |
-| `/askdiff current branch against feature/test` | `git diff feature/test...HEAD` (three-dot, PR semantics) | `feature/test…HEAD` |
-| `/askdiff main vs my branch` | `git diff main...HEAD` | `main…HEAD` |
-| `/askdiff abc123 vs def456` | `git diff abc123 def456` | `abc123..def456` |
-| `/askdiff staged` | `git diff --cached` | `staged` |
+| (empty) | working tree — see Step 2 | `Working tree` |
+| `last commit` | `git diff HEAD~1 HEAD` | `HEAD~1..HEAD` |
+| `last 3 commits` | `git diff HEAD~3 HEAD` | `HEAD~3..HEAD` |
+| `the 5th latest commit` | `git diff HEAD~5 HEAD~4` | `HEAD~5..HEAD~4` |
+| `current branch against feature/test` | `git diff feature/test...HEAD` (three-dot, PR semantics) | `feature/test…HEAD` |
+| `main vs my branch` | `git diff main...HEAD` | `main…HEAD` |
+| `abc123 vs def456` | `git diff abc123 def456` | `abc123..def456` |
+| `staged` | `git diff --cached` | `staged` |
 
 Defaults when the user is ambiguous:
 - "branch X against branch Y" / "X vs Y" between two named refs ⇒ three-dot
@@ -99,6 +111,48 @@ each ref the user named directly. If any fails, stop and tell the user
 which ref didn't resolve — do not launch the server. (Refs returned by the
 search ladder are already validated by virtue of `git log` finding them.)
 
+### Session hint (optional)
+
+By default `/askdiff` attaches the WS server to the **invoking** session
+(the one running this skill). The user may override that by carrying a
+phrase about the target session in their input. Decompose the input into
+two parts:
+
+- `diff_description` — what to diff (everything Step 1's table/ladder uses)
+- `session_hint` — one of `none`, `explicit-id <uuid-or-prefix>`, or
+  `keywords <a, b, c, …>`
+
+**Trigger phrases** for `session_hint` (illustrative — generalize from
+these):
+
+- "attached to (the/a) session …"
+- "connected to (the/a) session/conversation/chat …"
+- "in (the/a/our) session [about / where / that] …"
+- "from (the/a) [chat / conversation] [where / about] …"
+- "the session in which …", "session that …"
+- "session id `<uuid>`", "session `<uuid>`", or a bare UUID-shaped token
+  (8+ hex chars, optionally with dashes)
+
+**Examples:**
+
+| User input | `diff_description` | `session_hint` |
+|---|---|---|
+| `last commit` | `last commit` | none |
+| (empty) | (working tree) | none |
+| `the staleness commit attached to the session where we discussed mtime checks` | `the staleness commit` | keywords: "mtime checks" |
+| `last commit in our session about pricing rules and tax math` | `last commit` | keywords: "pricing rules", "tax math" |
+| `session 322bc90a` | (working tree) | explicit-id: `322bc90a` |
+| `abc123 vs def456 in session 322bc90a-714f-41b7-914e-109404e46072` | `abc123 vs def456` | explicit-id: full UUID |
+
+**Be conservative.** If parsing is itself ambiguous (e.g. "the foo session"
+— is "session" a noun in the diff or a trigger?), treat the whole input
+as `diff_description` (no session hint). Don't ask the user to clarify the
+parse — just resolve the diff and proceed; the default attachment to the
+invoking session is always safe.
+
+The session hint is consumed in Step 4. Steps 2 and 3 use only
+`diff_description`.
+
 ## Step 2 — write the diff to a session-stable file
 
 First resolve the parent Claude Code session and project cwd. All `/tmp`
@@ -158,7 +212,7 @@ empty (clean tree); launch anyway and the UI will show "No changes."
 **Mark the diff as volatile if you took the working-tree path.** Set
 `volatile=1` if Step 2 used the working-tree block (the diff can drift as
 the user keeps editing); set `volatile=0` for description-based diffs
-(immutable git history). Step 4 forwards this to the server as
+(immutable git history). Step 5 forwards this to the server as
 `ASKDIFF_DIFF_VOLATILE`, which gates the per-file mtime staleness check.
 
 ## Step 3 — pick a short label
@@ -166,7 +220,147 @@ the user keeps editing); set `volatile=0` for description-based diffs
 Use the "Suggested label" column above. For the working-tree case, use
 `Working tree`. Keep it under ~40 chars. This becomes `ASKDIFF_DIFF_LABEL`.
 
-## Step 4 — launch
+## Step 4 — resolve the target session
+
+Compute `attached_session` and `session_source` from `session_hint`
+(captured in Step 1). The default is the invoking session — that path
+matches today's behavior and skips all the matching logic below.
+
+```bash
+attached_session="$session_id"      # default = invoking
+session_source="invoking"
+
+sessions_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(echo "$project_cwd" | tr '/' '-')"
+```
+
+### 4a. No hint → invoking session (default)
+
+If `session_hint` is `none`, leave the defaults and skip to Step 5.
+
+### 4b. Explicit ID → resolve
+
+If `session_hint` is `explicit-id <X>`:
+
+```bash
+explicit_id="<X>"
+
+if echo "$explicit_id" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+  # Full UUID: trust it if the file exists.
+  if [ -f "$sessions_dir/$explicit_id.jsonl" ]; then
+    attached_session="$explicit_id"
+    session_source="explicit"
+  else
+    # → AskUserQuestion: session not found, use current?
+    :
+  fi
+else
+  # Short prefix: glob and disambiguate.
+  shopt -s nullglob
+  matches=( "$sessions_dir/${explicit_id}"*.jsonl )
+  shopt -u nullglob
+  case ${#matches[@]} in
+    1)
+      attached_session=$(basename "${matches[0]}" .jsonl)
+      session_source="explicit"
+      ;;
+    0)
+      # → AskUserQuestion: no session matches "<prefix>", use current?
+      : ;;
+    *)
+      # → AskUserQuestion: pick one of N candidates (list short-uuid · age)
+      : ;;
+  esac
+fi
+```
+
+For the AskUserQuestion branches above:
+
+- **Not found / 0 matches**: options are "Use current session" and "Cancel" (do not launch).
+- **Multiple prefix matches**: one option per UUID labelled `<short-uuid> · <age>` (compute age below), plus "Use current session". Set `attached_session` and `session_source="explicit"` from the user's pick.
+
+### 4c. Keywords → grep, decide, possibly ask
+
+If `session_hint` is `keywords <a, b, c, …>`:
+
+```bash
+needles_file=$(mktemp)
+
+# 1. The user's session keywords (literal phrases — one per line).
+printf '%s\n' "<keyword 1>" "<keyword 2>" >> "$needles_file"
+
+# 2. Changed file paths from the resolved diff (additional signal,
+#    catches sessions that Read/Edit/Write'd those files).
+command grep -E '^\+\+\+ b/' "$diff_file" | sed -E 's|^\+\+\+ b/||' >> "$needles_file"
+
+# 3. Commit SHAs (only for description-based diffs — Claude knows these
+#    from Step 1's resolution). Skip for working-tree diffs.
+for sha in "<sha1>" "<sha2>"; do
+  [ -n "$sha" ] && printf '%s\n' "$sha" >> "$needles_file"
+done
+
+# 4. Branch names (only for the X...Y / X..Y form).
+for br in "<branch1>" "<branch2>"; do
+  [ -n "$br" ] && printf '%s\n' "$br" >> "$needles_file"
+done
+
+# Search recent JSONLs (mtime −30d), filter out the invoking session
+# (it always matches its own JSONL because the user just typed the
+# keywords into it), return at most 5 rows of "<count> <uuid>" sorted
+# by hit count desc.
+#
+# Three subtle things below — change them at your peril:
+#   - `command grep` bypasses any shell function/alias that wraps grep.
+#     Claude Code's harness wraps grep as a function that proxies to
+#     ugrep with extra flags, and that wrapper breaks `-Ff <patternfile>`.
+#   - We pipe `find` directly into `while read`, instead of `for f in
+#     $(find ...)`. zsh doesn't word-split unquoted variable expansions
+#     on newlines by default; that for-loop iterates exactly ONCE with
+#     $f containing every path concatenated.
+#   - `count=$(grep -c ...)` then `[ -z "$count" ] && count=0` — do NOT
+#     write `count=$(grep -c ... || echo 0)`. grep -c always prints a
+#     number (0 on no match) AND exits non-zero when there are no
+#     matches, so the `|| echo 0` doubles the output to "0\n0" and
+#     breaks the numeric `-gt` comparison.
+results=$(
+  find "$sessions_dir" -name '*.jsonl' -mtime -30 -type f 2>/dev/null \
+  | while read -r f; do
+      uuid=$(basename "$f" .jsonl)
+      [ "$uuid" = "$session_id" ] && continue
+      count=$(command grep -cFf "$needles_file" "$f" 2>/dev/null)
+      [ -z "$count" ] && count=0
+      [ "$count" -gt 0 ] && echo "$count $uuid"
+    done | sort -rn | head -5
+)
+rm -f "$needles_file"
+```
+
+Read `$results` and route:
+
+| Result shape | Action |
+|---|---|
+| 0 lines | AskUserQuestion: "no session matched `<keywords>`. Use current session?" → "Use current" or "Cancel and refine" |
+| 1 line | use that UUID; `attached_session=$uuid`, `session_source="matched"` |
+| 2+ lines, top count ≥ 2× second | use top-1; `session_source="matched"` |
+| 2–5 lines, comparable counts | AskUserQuestion: list each candidate as `<short-uuid> · <age> · <count> hits`, plus "Use current session" |
+
+For ages (used in AskUserQuestion labels):
+
+```bash
+now=$(date +%s)
+mtime=$(stat -f %m "$sessions_dir/$uuid.jsonl" 2>/dev/null || stat -c %Y "$sessions_dir/$uuid.jsonl")
+age_sec=$(( now - mtime ))
+if [ $age_sec -lt 86400 ]; then
+  age_str="$((age_sec / 3600))h ago"
+else
+  age_str="$((age_sec / 86400))d ago"
+fi
+```
+
+**Don't widen the search automatically.** If results are empty or
+unclear, surface that to the user via AskUserQuestion. Re-run with
+broader scope (e.g. `mtime -90`) only if the user explicitly says to.
+
+## Step 5 — launch
 
 Run as a single Bash command. Substitute `EXTRA_DIFF_FILE` and
 `EXTRA_DIFF_LABEL` literally with the values from Step 2/3.
@@ -179,8 +373,9 @@ set +e
 # this repo always pulls the newest published version).
 ASKDIFF_VERSION="latest"
 
-# Filled in by Step 2/3 (session_id, project_cwd, suffix come from Step 2's
-# preamble — keep that block above this one in your final invocation).
+# Filled in by Steps 2/3/4 (session_id, project_cwd, suffix come from
+# Step 2's preamble; attached_session and session_source come from
+# Step 4 — keep both blocks above this one in your final invocation).
 EXTRA_DIFF_FILE=""
 EXTRA_DIFF_LABEL=""
 
@@ -214,7 +409,7 @@ port_arg=""
 [ -n "$saved_port" ] && port_arg="--port $saved_port"
 
 cd "$project_cwd" \
-  && ASKDIFF_SESSION_ID="$session_id" \
+  && ASKDIFF_SESSION_ID="$attached_session" \
      ASKDIFF_PROJECT_CWD="$project_cwd" \
      ASKDIFF_DIFF_FILE="$EXTRA_DIFF_FILE" \
      ASKDIFF_DIFF_LABEL="$EXTRA_DIFF_LABEL" \
@@ -223,9 +418,10 @@ cd "$project_cwd" \
 new_pid=$!
 disown
 
-# Wait for the listening line to land in the log.
+# Wait for the listening line to land in the log. (`command grep`
+# bypasses the harness's grep wrapper — see Step 4c for context.)
 for _ in $(seq 1 60); do
-  grep -q "listening on" "$log_file" 2>/dev/null && break
+  command grep -q "listening on" "$log_file" 2>/dev/null && break
   sleep 0.25
 done
 
@@ -277,7 +473,11 @@ fi
 The launch always happens — there's no halt-and-prompt branch anymore.
 Tell the user:
 - the WS server URL (the `listening on http://...` line)
-- the resolved Claude session ID (the `claude session:` line)
+- the resolved Claude session ID (the `claude session:` line) — and
+  if `$session_source` is `explicit` or `matched`, say so explicitly
+  (e.g. "attached to matched session 322bc90a (was: invoking)") so the
+  user knows their asks are not landing in the current session's
+  transcript
 - the diff label (always set)
 - the log file: `/tmp/askdiff.$suffix.log` (printed as the last `Log:` line)
 - the UI URL (last echoed `UI:` line) — opened on first launch; on a

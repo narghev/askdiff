@@ -98,8 +98,10 @@ describe("session-resolution filesystem helpers", () => {
   });
 
   describe("resolveInitialSessionId", () => {
-    it("returns null when env is unset (server starts unconfigured)", async () => {
-      await expect(resolveInitialSessionId(projectCwd)).resolves.toBeNull();
+    it("throws when env is unset (server requires a session)", async () => {
+      await expect(resolveInitialSessionId(projectCwd)).rejects.toThrow(
+        /ASKDIFF_SESSION_ID is required/,
+      );
     });
 
     it("returns the env session when valid and present on disk", async () => {
