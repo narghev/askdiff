@@ -28,6 +28,15 @@ Either or both may be empty. The diff-description part may be empty
 absent. Treat them independently — first identify and set aside the
 session hint, then pass the rest to the diff resolution below.
 
+**Use only the current `/askdiff` line's args.** Read `<command-args>`
+strictly from the message that invoked this skill — nothing else. Do
+*not* infer or carry over args from earlier conversation turns, from
+`SessionStart` hook context (e.g. a "Previous session summary" block
+that quotes a prior `/askdiff` invocation verbatim), from CLAUDE.md, or
+from memory. If the current line has no text after `/askdiff`, both
+`diff_description` and `session_hint` are empty/none — that means
+working tree + invoking session, full stop.
+
 | `diff_description` | git command | Suggested label |
 |---|---|---|
 | (empty) | working tree — see Step 2 | `Working tree` |
