@@ -5,22 +5,17 @@ user-invocable: true
 allowed-tools: Bash
 ---
 
-Local-development variant of `/askdiff`. Starts the WS server **and** the
-browser UI's Vite dev server (with HMR), and exercises the in-repo
-TypeScript instead of the published npm package. Vite is configured to
-proxy `/ws` to the WS server, so the UI uses the same same-origin
-`new WebSocket('ws://host/ws')` URL in dev as in prod. The
-`ASKDIFF_DEV_WS_TARGET` env var tells Vite which port to forward to.
+Local-dev variant of `/askdiff`. Starts the WS server **and** Vite (HMR)
+against in-repo TypeScript instead of the published CLI. Vite proxies
+`/ws` to the WS server (port from `ASKDIFF_DEV_WS_TARGET`), so the UI
+uses the same same-origin `new WebSocket('ws://host/ws')` URL as in prod.
 
-Use this when editing `packages/server` or `packages/ui-browser` and you
-want changes to reload instantly instead of rebuilding/republishing.
+Use when editing `packages/server` or `packages/ui-browser` for instant
+reload instead of rebuild/republish.
 
-> **Keep Steps 1–4 in sync with `.claude/skills/askdiff/SKILL.md`.** The
-> diff-resolution and session-resolution flow (interpret → git → temp file
-> → label → pick session) must behave identically in both skills; only
-> Step 5 (launch) differs. If you change any block below — including the
-> session-resolution logic in Step 4 — change it in the user-facing
-> `askdiff` skill too.
+> **Keep Steps 1–4 in sync with `.claude/skills/askdiff/SKILL.md`** — only
+> the Step 4c `resolve-session` invocation and Step 5 launch differ
+> between the two skills.
 
 ## Step 1 — figure out which diff the user wants (and which session)
 
@@ -58,13 +53,12 @@ Defaults when the user is ambiguous:
 
 ### When the description is vague
 
-If the description doesn't fit the table — e.g. "the commit where I added
-the favicon", "the last commit by my coworker David", "where we ripped out
-the old auth code", "the commit that broke CI last week" — pin down a
-single commit with the ladder below, then diff `<sha>^..<sha>` (same shape
-as the "Nth latest commit" pattern). Try in order until exactly one commit
-matches; if several match, pick the most recent and **tell the user which
-one you chose**; if none match, stop and ask — do not guess.
+If the description doesn't fit the table (e.g. "the commit where I added
+the favicon", "where we ripped out the old auth"), pin down a single
+commit with the ladder below, then diff `<sha>^..<sha>`. Try in order
+until exactly one commit matches; if several match, pick the most recent
+and **tell the user which one you chose**; if none match, stop and ask —
+do not guess.
 
 1. **Author.** "by <name>", "<name>'s last", "by my coworker":
    ```bash
@@ -100,16 +94,12 @@ previous commit, where I added a favicon" but the favicon is at HEAD~2),
 trust the description over the count and **flag the off-by-one to the
 user** so they know what you picked.
 
-**Stay within git — never read file contents to disambiguate.** The four
-steps above use git only: `git log` (with `--author`, `--grep`, `-S`,
-`-G`, `--follow`, `--diff-filter`) and `git ls-files | grep` on
-path names. **Do not** `cat`/`head` files, **do not** `grep -r` or `rg`
-into working-tree contents, **do not** Read the contents of candidate
-files. If the four-step ladder doesn't pin down a unique commit, **stop
-and ask the user via `AskUserQuestion`** — surface the candidates the
-ladder turned up and let the user pick, or ask for a more specific
-description. Reading file contents during search is a token-cost cliff
-that requires explicit user consent.
+**Stay within git — never read file contents to disambiguate.** Use only
+`git log` (with `--author`, `--grep`, `-S`, `-G`, `--follow`,
+`--diff-filter`) and `git ls-files | grep` on path names. Don't `cat`,
+`grep -r`, `rg`, or `Read` working-tree contents. If the ladder doesn't
+pin down a unique commit, AskUserQuestion with the candidates — reading
+files during search is a token-cost cliff that requires user consent.
 
 **Validate every ref first.** Run `git rev-parse --verify <ref>^{commit}` for
 each ref the user named directly. If any fails, stop and tell the user
@@ -127,16 +117,10 @@ input into two parts:
 - `session_hint` — one of `none`, `explicit-id <uuid-or-prefix>`, or
   `keywords <a, b, c, …>`
 
-**Trigger phrases** for `session_hint` (illustrative — generalize from
-these):
-
-- "attached to (the/a) session …"
-- "connected to (the/a) session/conversation/chat …"
-- "in (the/a/our) session [about / where / that] …"
-- "from (the/a) [chat / conversation] [where / about] …"
-- "the session in which …", "session that …"
-- "session id `<uuid>`", "session `<uuid>`", or a bare UUID-shaped token
-  (8+ hex chars, optionally with dashes)
+A session hint shows up as language about the *session/conversation/chat*
+the diff comes from — e.g. "attached to the session …", "in our session
+about X", "from the chat where Y", "session id `<uuid>`", or a bare
+UUID-shaped token (8+ hex chars).
 
 **Examples:**
 
@@ -211,11 +195,8 @@ user the requested diff is empty and don't launch. The working-tree path
 *can* legitimately be empty (clean tree); launch anyway and the UI will
 show "No changes."
 
-**Mark the diff as volatile if you took the working-tree path.** Set
-`volatile=1` if Step 2 used the working-tree block (the diff can drift as
-the user keeps editing); set `volatile=0` for description-based diffs
-(immutable git history). Step 5 forwards this to the server as
-`ASKDIFF_DIFF_VOLATILE`, which gates the per-file mtime staleness check.
+Set `volatile=1` for the working-tree path, `volatile=0` otherwise — Step 5
+forwards this as `ASKDIFF_DIFF_VOLATILE` (gates per-file mtime staleness).
 
 ## Step 3 — pick a short label
 
@@ -225,8 +206,7 @@ Use the "Suggested label" column above. For the working-tree case, use
 ## Step 4 — resolve the target session
 
 Compute `attached_session` and `session_source` from `session_hint`
-(captured in Step 1). The default is the invoking session — that path
-matches today's behavior and skips all the matching logic below.
+(from Step 1). Default is the invoking session.
 
 ```bash
 attached_session="$session_id"      # default = invoking
@@ -256,14 +236,20 @@ if echo "$explicit_id" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
     :
   fi
 else
-  # Short prefix: glob and disambiguate.
-  shopt -s nullglob
-  matches=( "$sessions_dir/${explicit_id}"*.jsonl )
-  shopt -u nullglob
+  # Short prefix: list and disambiguate via `find` (zsh-compatible — see
+  # footgun in CLAUDE.md: `shopt` is bash-only and silently fails in zsh,
+  # and zsh arrays are 1-indexed so `${matches[0]}` returns empty).
+  matches=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && matches+=("$f")
+  done < <(find "$sessions_dir" -maxdepth 1 -name "${explicit_id}*.jsonl" -type f 2>/dev/null)
   case ${#matches[@]} in
     1)
-      attached_session=$(basename "${matches[0]}" .jsonl)
-      session_source="explicit"
+      # Iterate to dodge bash-vs-zsh first-index difference.
+      for f in "${matches[@]}"; do
+        attached_session=$(basename "$f" .jsonl)
+        session_source="explicit"
+      done
       ;;
     0)
       # → AskUserQuestion: no session matches "<prefix>", use current?
@@ -275,92 +261,51 @@ else
 fi
 ```
 
-For the AskUserQuestion branches above:
+AskUserQuestion branches: 0 matches → "Use current session" or "Cancel"
+(don't launch). Multiple matches → one option per UUID as
+`<short-uuid> · <age>` plus "Use current session"; on user pick set
+`attached_session` and `session_source="explicit"`.
 
-- **Not found / 0 matches**: options are "Use current session" and "Cancel" (do not launch).
-- **Multiple prefix matches**: one option per UUID labelled `<short-uuid> · <age>` (compute age below), plus "Use current session". Set `attached_session` and `session_source="explicit"` from the user's pick.
+### 4c. Keywords → resolve-session, decide, possibly ask
 
-### 4c. Keywords → grep, decide, possibly ask
-
-If `session_hint` is `keywords <a, b, c, …>`:
+If `session_hint` is `keywords <a, b, c, …>`, call the in-repo CLI's
+`resolve-session` subcommand. It searches recent project JSONLs (mtime
+−30d, excluding the invoking session, top 5 by hit count) and prints
+single-line JSON: `{"candidates":[{"uuid":"…","count":N,"age":"…"}, …]}`.
 
 ```bash
-needles_file=$(mktemp)
-
-# 1. The user's session keywords (literal phrases — one per line).
-printf '%s\n' "<keyword 1>" "<keyword 2>" >> "$needles_file"
-
-# 2. Changed file paths from the resolved diff (additional signal,
-#    catches sessions that Read/Edit/Write'd those files).
-command grep -E '^\+\+\+ b/' "$diff_file" | sed -E 's|^\+\+\+ b/||' >> "$needles_file"
-
-# 3. Commit SHAs (only for description-based diffs — Claude knows these
-#    from Step 1's resolution). Skip for working-tree diffs.
-for sha in "<sha1>" "<sha2>"; do
-  [ -n "$sha" ] && printf '%s\n' "$sha" >> "$needles_file"
-done
-
-# 4. Branch names (only for the X...Y / X..Y form).
-for br in "<branch1>" "<branch2>"; do
-  [ -n "$br" ] && printf '%s\n' "$br" >> "$needles_file"
-done
-
-# Search recent JSONLs (mtime −30d), filter out the invoking session
-# (it always matches its own JSONL because the user just typed the
-# keywords into it), return at most 5 rows of "<count> <uuid>" sorted
-# by hit count desc.
-#
-# Three subtle things below — change them at your peril:
-#   - `command grep` bypasses any shell function/alias that wraps grep.
-#     Claude Code's harness wraps grep as a function that proxies to
-#     ugrep with extra flags, and that wrapper breaks `-Ff <patternfile>`.
-#   - We pipe `find` directly into `while read`, instead of `for f in
-#     $(find ...)`. zsh doesn't word-split unquoted variable expansions
-#     on newlines by default; that for-loop iterates exactly ONCE with
-#     $f containing every path concatenated.
-#   - `count=$(grep -c ...)` then `[ -z "$count" ] && count=0` — do NOT
-#     write `count=$(grep -c ... || echo 0)`. grep -c always prints a
-#     number (0 on no match) AND exits non-zero when there are no
-#     matches, so the `|| echo 0` doubles the output to "0\n0" and
-#     breaks the numeric `-gt` comparison.
 results=$(
-  find "$sessions_dir" -name '*.jsonl' -mtime -30 -type f 2>/dev/null \
-  | while read -r f; do
-      uuid=$(basename "$f" .jsonl)
-      [ "$uuid" = "$session_id" ] && continue
-      count=$(command grep -cFf "$needles_file" "$f" 2>/dev/null)
-      [ -z "$count" ] && count=0
-      [ "$count" -gt 0 ] && echo "$count $uuid"
-    done | sort -rn | head -5
+  pnpm --filter askdiff exec tsx src/index.ts resolve-session \
+    --cwd "$project_cwd" \
+    --invoking "$session_id" \
+    --diff-file "$diff_file" \
+    --keyword "<keyword 1>" \
+    --keyword "<keyword 2>" \
+    --sha "<sha1>" \
+    --sha "<sha2>" \
+    --branch "<branch1>" \
+    --branch "<branch2>"
 )
-rm -f "$needles_file"
+echo "$results"
 ```
 
-Read `$results` and route:
+Repeat `--keyword`/`--sha`/`--branch` per value; omit a flag entirely
+if its list is empty. Always pass `--diff-file` (changed file paths feed
+the search as additional needles regardless of diff source); omit `--sha`
+and `--branch` for working-tree diffs (no commit/branch context).
 
-| Result shape | Action |
+Read `$results` and route on `.candidates`:
+
+| Result | Action |
 |---|---|
-| 0 lines | AskUserQuestion: "no session matched `<keywords>`. Use current session?" → "Use current" or "Cancel and refine" |
-| 1 line | use that UUID; `attached_session=$uuid`, `session_source="matched"` |
-| 2+ lines, top count ≥ 2× second | use top-1; `session_source="matched"` |
-| 2–5 lines, comparable counts | AskUserQuestion: list each candidate as `<short-uuid> · <age> · <count> hits`, plus "Use current session" |
+| empty | AskUserQuestion: "no session matched `<keywords>`. Use current?" → "Use current" or "Cancel and refine" |
+| 1 candidate | use that UUID; `attached_session=$uuid`, `session_source="matched"` |
+| 2+, top count ≥ 2× second | use top-1; `session_source="matched"` |
+| 2–5, comparable counts | AskUserQuestion: one option per candidate as `<short-uuid> · <age> · <count> hits`, plus "Use current session" |
 
-For ages (used in AskUserQuestion labels):
-
-```bash
-now=$(date +%s)
-mtime=$(stat -f %m "$sessions_dir/$uuid.jsonl" 2>/dev/null || stat -c %Y "$sessions_dir/$uuid.jsonl")
-age_sec=$(( now - mtime ))
-if [ $age_sec -lt 86400 ]; then
-  age_str="$((age_sec / 3600))h ago"
-else
-  age_str="$((age_sec / 86400))d ago"
-fi
-```
-
-**Don't widen the search automatically.** If results are empty or
-unclear, surface that to the user via AskUserQuestion. Re-run with
-broader scope (e.g. `mtime -90`) only if the user explicitly says to.
+**Don't widen scope automatically** (e.g. by raising `--max-age-days` or
+`--top`). Surface 0/unclear results via AskUserQuestion; re-run only on
+user request.
 
 ## Step 5 — launch (in-repo)
 
@@ -381,11 +326,9 @@ ui_log="/tmp/askdiff-ui.$suffix.log"
 ui_pid_file="/tmp/askdiff-ui.$suffix.pid"
 pid_file="/tmp/askdiff.$suffix.pid"
 
-# 1. If a server for this session is already running, kill it and remember
-#    its port. Reusing the port matters here especially: Vite's /ws proxy
-#    (ASKDIFF_DEV_WS_TARGET) is locked to whatever port we passed when
-#    Vite first started. Reusing keeps the browser tab alive — its WS
-#    will auto-reconnect (see lib/ws.ts) and load the new diff.
+# 1. Kill any previous server for this session and reuse its port —
+#    Vite's /ws proxy is locked to whatever port we passed when Vite
+#    first started, so reusing keeps the open browser tab valid.
 saved_port=""
 if [ -f "$pid_file" ]; then
   read -r old_pid saved_port < "$pid_file" 2>/dev/null
@@ -443,8 +386,8 @@ if ! $ui_running; then
   disown
 fi
 
-# 5. Wait for Vite to print its "Local: http://localhost:XXXX/" line.
-#    (`command grep` bypasses the harness's grep wrapper — see Step 4c.)
+# 5. Wait for Vite's "Local: http://localhost:XXXX/" line.
+#    (`command grep` — see Step 4c footguns.)
 for _ in $(seq 1 60); do
   command grep -q "Local:" "$ui_log" 2>/dev/null && break
   sleep 0.25
@@ -455,42 +398,28 @@ vite_port=$(sed -E -n 's|.*Local:[^0-9]*([0-9]+)/?.*|\1|p' "$ui_log" | head -1)
 
 ui_url="http://localhost:${vite_port}/"
 
-# Only auto-open the browser on the *first* launch (no saved_port). On
-# refresh-style re-invocations, the user's tab is still open and its WS
-# will auto-reconnect; opening another tab would be annoying.
+# Auto-open only on first launch — refresh re-invocations have a tab open.
 if [ -z "$saved_port" ]; then
   (open "$ui_url" >/dev/null 2>&1 || xdg-open "$ui_url" >/dev/null 2>&1) &
 fi
 
 echo ""
-if [ -n "$saved_port" ]; then
-  echo "Refreshed: same port, new diff. Browser tab will auto-reconnect."
-fi
+[ -n "$saved_port" ] && echo "Refreshed: same port, new diff. Browser tab will auto-reconnect."
 echo "UI: $ui_url"
 echo "WS log: $log_file"
 echo "UI log: $ui_log"
 echo "WS PID: $new_pid (saved to $pid_file)"
 ```
 
-Then tell the user:
-- the WS server port (visible in the `listening on ws://...` line)
-- the resolved Claude session ID (from the `claude session:` line) — and
-  if `$session_source` is `explicit` or `matched`, say so explicitly
-  (e.g. "attached to matched session 322bc90a (was: invoking)") so the
-  user knows their asks are not landing in the current session's
-  transcript
-- the diff label (always set)
-- the WS log file (printed as the `WS log:` line — `/tmp/askdiff.<suffix>.log`)
-- the Vite log file (printed as the `UI log:` line — `/tmp/askdiff-ui.<suffix>.log`)
-- the UI URL (last echoed `UI:` line) — already opened in their default browser
+The user already sees `UI:` / `WS log:` / `UI log:` / `WS PID:` /
+`Refreshed:` in the bash output. After launch, only narrate:
 
-If the `claude session:` line says `(none ...)`, the parent CC manifest was
-not found at `$session_file`. That usually means the server was launched
-from outside a Claude Code session.
+- if `$session_source` is `explicit` or `matched`, say so (e.g.
+  "attached to matched session 322bc90a (was: invoking)") so the user
+  knows asks aren't landing in the current session's transcript
 
-The WS server idle-shuts after 5 min with no connected clients (see
-`ASKDIFF_IDLE_SHUTDOWN_MS`); re-invoking `/askdiff-dev` always kills the
-previous WS server for this session before starting a new one. Vite
-intentionally stays running across re-invocations (HMR is the whole
-point) — kill it via Activity Monitor or `pkill -f 'ui-browser.*vite'`
-on the rare occasion you want it gone.
+The WS server idle-shuts after 5 min with no connected clients;
+re-invoking `/askdiff-dev` kills the previous WS server for this session
+before starting a new one. Vite stays running across re-invocations
+(HMR is the whole point) — kill it via Activity Monitor or
+`pkill -f 'ui-browser.*vite'` if needed.
