@@ -9,7 +9,8 @@ Compute the user's diff, write it to a temp file, then launch the
 `askdiff` CLI in the background pointing at that file.
 
 > **Keep Steps 1–4 in sync with `.claude/skills/askdiff-dev/SKILL.md`** —
-> only Step 5 (launch) differs between the two skills.
+> only the Step 4c `resolve-session` invocation and Step 5 launch differ
+> between the two skills.
 
 ## Step 1 — figure out which diff the user wants (and which session)
 
@@ -230,14 +231,20 @@ if echo "$explicit_id" | grep -qE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
     :
   fi
 else
-  # Short prefix: glob and disambiguate.
-  shopt -s nullglob
-  matches=( "$sessions_dir/${explicit_id}"*.jsonl )
-  shopt -u nullglob
+  # Short prefix: list and disambiguate via `find` (zsh-compatible — see
+  # footgun in CLAUDE.md: `shopt` is bash-only and silently fails in zsh,
+  # and zsh arrays are 1-indexed so `${matches[0]}` returns empty).
+  matches=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && matches+=("$f")
+  done < <(find "$sessions_dir" -maxdepth 1 -name "${explicit_id}*.jsonl" -type f 2>/dev/null)
   case ${#matches[@]} in
     1)
-      attached_session=$(basename "${matches[0]}" .jsonl)
-      session_source="explicit"
+      # Iterate to dodge bash-vs-zsh first-index difference.
+      for f in "${matches[@]}"; do
+        attached_session=$(basename "$f" .jsonl)
+        session_source="explicit"
+      done
       ;;
     0)
       # → AskUserQuestion: no session matches "<prefix>", use current?
@@ -254,74 +261,49 @@ AskUserQuestion branches: 0 matches → "Use current session" or "Cancel"
 `<short-uuid> · <age>` plus "Use current session"; on user pick set
 `attached_session` and `session_source="explicit"`.
 
-### 4c. Keywords → grep, decide, possibly ask
+### 4c. Keywords → resolve-session, decide, possibly ask
 
-If `session_hint` is `keywords <a, b, c, …>`:
+If `session_hint` is `keywords <a, b, c, …>`, call the CLI's
+`resolve-session` subcommand. It searches recent project JSONLs (mtime
+−30d, excluding the invoking session, top 5 by hit count) and prints
+single-line JSON: `{"candidates":[{"uuid":"…","count":N,"age":"…"}, …]}`.
 
 ```bash
-needles_file=$(mktemp)
+# Pinned by the build script for the npm tarball; in-repo stays "latest".
+ASKDIFF_VERSION="latest"
 
-# 1. The user's session keywords (literal phrases — one per line).
-printf '%s\n' "<keyword 1>" "<keyword 2>" >> "$needles_file"
-
-# 2. Changed file paths from the resolved diff (additional signal,
-#    catches sessions that Read/Edit/Write'd those files).
-command grep -E '^\+\+\+ b/' "$diff_file" | sed -E 's|^\+\+\+ b/||' >> "$needles_file"
-
-# 3. Commit SHAs (only for description-based diffs — Claude knows these
-#    from Step 1's resolution). Skip for working-tree diffs.
-for sha in "<sha1>" "<sha2>"; do
-  [ -n "$sha" ] && printf '%s\n' "$sha" >> "$needles_file"
-done
-
-# 4. Branch names (only for the X...Y / X..Y form).
-for br in "<branch1>" "<branch2>"; do
-  [ -n "$br" ] && printf '%s\n' "$br" >> "$needles_file"
-done
-
-# Search recent JSONLs (mtime −30d), filter out the invoking session,
-# return at most 5 rows of "<count> <uuid>" sorted by count desc.
-# Footguns (rationale in this repo's CLAUDE.md "Do not" section):
-#   - `command grep`, not `grep` — harness wrappers can break `-Ff`.
-#   - `find … | while read`, not `for f in $(find …)` — zsh joins newlines.
-#   - `[ -z "$count" ] && count=0`, NOT `|| echo 0` — grep -c exits non-zero on no-match.
 results=$(
-  find "$sessions_dir" -name '*.jsonl' -mtime -30 -type f 2>/dev/null \
-  | while read -r f; do
-      uuid=$(basename "$f" .jsonl)
-      [ "$uuid" = "$session_id" ] && continue
-      count=$(command grep -cFf "$needles_file" "$f" 2>/dev/null)
-      [ -z "$count" ] && count=0
-      [ "$count" -gt 0 ] && echo "$count $uuid"
-    done | sort -rn | head -5
+  npx -y askdiff@"$ASKDIFF_VERSION" resolve-session \
+    --cwd "$project_cwd" \
+    --invoking "$session_id" \
+    --diff-file "$diff_file" \
+    --keyword "<keyword 1>" \
+    --keyword "<keyword 2>" \
+    --sha "<sha1>" \
+    --sha "<sha2>" \
+    --branch "<branch1>" \
+    --branch "<branch2>"
 )
-rm -f "$needles_file"
+echo "$results"
 ```
 
-Read `$results` and route:
+Repeat `--keyword`/`--sha`/`--branch` per value; omit a flag entirely
+if its list is empty. Always pass `--diff-file` (changed file paths feed
+the search as additional needles regardless of diff source); omit `--sha`
+and `--branch` for working-tree diffs (no commit/branch context).
 
-| Result shape | Action |
+Read `$results` and route on `.candidates`:
+
+| Result | Action |
 |---|---|
-| 0 lines | AskUserQuestion: "no session matched `<keywords>`. Use current session?" → "Use current" or "Cancel and refine" |
-| 1 line | use that UUID; `attached_session=$uuid`, `session_source="matched"` |
-| 2+ lines, top count ≥ 2× second | use top-1; `session_source="matched"` |
-| 2–5 lines, comparable counts | AskUserQuestion: list each candidate as `<short-uuid> · <age> · <count> hits`, plus "Use current session" |
+| empty | AskUserQuestion: "no session matched `<keywords>`. Use current?" → "Use current" or "Cancel and refine" |
+| 1 candidate | use that UUID; `attached_session=$uuid`, `session_source="matched"` |
+| 2+, top count ≥ 2× second | use top-1; `session_source="matched"` |
+| 2–5, comparable counts | AskUserQuestion: one option per candidate as `<short-uuid> · <age> · <count> hits`, plus "Use current session" |
 
-For ages (used in AskUserQuestion labels):
-
-```bash
-now=$(date +%s)
-mtime=$(stat -f %m "$sessions_dir/$uuid.jsonl" 2>/dev/null || stat -c %Y "$sessions_dir/$uuid.jsonl")
-age_sec=$(( now - mtime ))
-if [ $age_sec -lt 86400 ]; then
-  age_str="$((age_sec / 3600))h ago"
-else
-  age_str="$((age_sec / 86400))d ago"
-fi
-```
-
-**Don't widen scope automatically** (e.g. `mtime -90`). Surface 0/unclear
-results via AskUserQuestion; re-run only on user request.
+**Don't widen scope automatically** (e.g. by raising `--max-age-days` or
+`--top`). Surface 0/unclear results via AskUserQuestion; re-run only on
+user request.
 
 ## Step 5 — launch
 

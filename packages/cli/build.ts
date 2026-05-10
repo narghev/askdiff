@@ -45,12 +45,11 @@ if (!existsSync(skillSrc)) {
   console.error(`error: SKILL.md not found at ${skillSrc}`);
   process.exit(1);
 }
-// Substitute the source's `ASKDIFF_VERSION="latest"` with this build's
-// exact version so the skill installed on a friend's machine pins to a
-// known release. The in-repo source stays as 'latest' so /askdiff in
-// this repo always pulls the newest published version.
+// Substitute every `ASKDIFF_VERSION="latest"` (Step 4c + Step 5) with this
+// build's exact version so the published skill pins to a known release. The
+// in-repo source stays "latest" so /askdiff in this repo always pulls newest.
 const skillBody = readFileSync(skillSrc, "utf8").replace(
-  /ASKDIFF_VERSION="latest"/,
+  /ASKDIFF_VERSION="latest"/g,
   `ASKDIFF_VERSION="${pkg.version}"`,
 );
 writeFileSync(join(distDir, "skill.md"), skillBody);

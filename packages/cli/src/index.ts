@@ -6,9 +6,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import open from "open";
-import { startServer, WS_PATH } from "@askdiff/server";
-import { PROTOCOL_VERSION } from "@askdiff/protocol";
-import { createUiHttpServer } from "./server-bundle.js";
+import { resolveSession } from "./resolve-session.js";
+
+// `@askdiff/server`, `@askdiff/protocol`, and `./server-bundle.js` are
+// loaded lazily inside `runServer` (the only place that needs them).
+// Static imports would force them onto every code path, including
+// `resolve-session`, and the protocol package is CJS — statically
+// importing it from this ESM module fails under `tsx` (used by the dev
+// skill's resolve-session call). Dynamic imports of static-string
+// specifiers are bundled by esbuild for the published CLI, so this
+// costs nothing at production runtime.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,10 +73,63 @@ async function main(): Promise<void> {
       await installSkill(opts.force, opts.global);
     });
 
+  const collect = (v: string, prev: string[]) => [...prev, v];
+  const parseIntOpt = (v: string) => Number.parseInt(v, 10);
+
+  program
+    .command("resolve-session")
+    .description(
+      "Search Claude Code session JSONLs in the current project for keyword/path/SHA/branch needles. Prints `{candidates:[{uuid,count,age}]}` JSON to stdout.",
+    )
+    // Note: `-c, --cwd` is intentionally NOT declared here. Commander v14
+    // routes it to the parent program (which already declares `-c, --cwd`)
+    // regardless of where it appears on the command line, so we read it
+    // from `program.opts()` and fall back to process.cwd().
+    .option("--invoking <uuid>", "session UUID to exclude (the invoking one)", "")
+    .option("--diff-file <path>", "extract `+++ b/<path>` lines from this diff as additional needles")
+    .option("--keyword <text>", "user keyword (repeatable)", collect, [] as string[])
+    .option("--sha <sha>", "commit SHA (repeatable)", collect, [] as string[])
+    .option("--branch <name>", "branch name (repeatable)", collect, [] as string[])
+    .option("--max-age-days <n>", "mtime cutoff in days", parseIntOpt, 30)
+    .option("--top <n>", "max candidates", parseIntOpt, 5)
+    .action(async (opts: ResolveSessionCliOptions) => {
+      const parentCwd = program.opts<{ cwd?: string }>().cwd;
+      const result = await resolveSession({
+        cwd: parentCwd ?? process.cwd(),
+        invoking: opts.invoking,
+        ...(opts.diffFile !== undefined ? { diffFile: opts.diffFile } : {}),
+        keywords: opts.keyword,
+        shas: opts.sha,
+        branches: opts.branch,
+        maxAgeDays: opts.maxAgeDays,
+        top: opts.top,
+      });
+      console.log(JSON.stringify(result));
+    });
+
   await program.parseAsync(process.argv);
 }
 
+interface ResolveSessionCliOptions {
+  invoking: string;
+  diffFile?: string;
+  keyword: string[];
+  sha: string[];
+  branch: string[];
+  maxAgeDays: number;
+  top: number;
+}
+
 async function runServer(opts: RunOptions): Promise<void> {
+  // Lazy-load: see top-of-file note. Keeps `resolve-session` off these
+  // imports so the dev-skill `tsx` invocation works.
+  const [{ startServer, WS_PATH }, { PROTOCOL_VERSION }, { createUiHttpServer }] =
+    await Promise.all([
+      import("@askdiff/server"),
+      import("@askdiff/protocol"),
+      import("./server-bundle.js"),
+    ]);
+
   const resolved = await resolveOptions(opts);
   const port = await pickFreePort(resolved.port, resolved.host);
 
