@@ -146,21 +146,6 @@ Each line can have multiple ask/answer pairs. They render as a
 threaded conversation inline with the diff, so you can ask a
 follow-up without losing context.
 
-## Configuration
-
-All optional. Set as env vars before running `npx -y askdiff` — or
-let the skill resolve them automatically. CLI flags also work
-(`askdiff --port 7838 --no-open --session <uuid>`); run `askdiff --help`
-for the full list.
-
-| Variable | Default | Notes |
-|---|---|---|
-| `PORT` | `7837` | Auto-bumps if taken. |
-| `ASKDIFF_SESSION_ID` | (resolved from `$PPID`) | Force a specific Claude Code session UUID. |
-| `ASKDIFF_PROJECT_CWD` | (parent CC manifest, then `process.cwd()`) | Project directory to diff. |
-| `ASKDIFF_MODEL` | (inherits resumed session's model) | Override the Claude model for asks. |
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores `sessions/`, `projects/`. |
-
 ## Updates
 
 After launching, the skill asynchronously checks npm for a newer
@@ -188,37 +173,12 @@ askdiff keeps no other state under `~/.claude` or your project.
 Anything left in `/tmp/askdiff*` is session-scoped scratch and clears
 itself out within the WS server's idle-shutdown window.
 
-## Troubleshooting
+## Help & contributing
 
-**"Claude session: (none — set ASKDIFF_SESSION_ID or use --session)"**
-The skill couldn't read the parent CC manifest. You're either running
-askdiff from outside a Claude Code session (no `$PPID.json` in
-`~/.claude/sessions/`), or `CLAUDE_CONFIG_DIR` points somewhere
-else. Pass `--session <uuid>` explicitly to override.
-
-**"Port 7837 is already in use"**
-Another askdiff (from a different session) is running, or something
-else grabbed the port. Same-session re-invocations don't hit this —
-they reuse their session's saved port. Pass `--port 7838` to force a
-specific port, or wait 5 min for the idle WS server to self-terminate.
-
-**Browser opens, UI loads, but never connects**
-The WS upgrade is failing. Check `/tmp/askdiff.<suffix>.log` (where
-`<suffix>` is your CC session UUID) — usually it's an old UI cached
-against a new server (reload the browser tab) or a hung
-`claude --resume` subprocess (check `ps aux | grep claude`).
-
-**`/askdiff` doesn't appear in Claude Code's skill picker**
-Run `npx -y askdiff install-skill` from inside the project (writes
-`<git-root>/.claude/skills/askdiff/SKILL.md`), or
-`npx -y askdiff install-skill --global` to install user-level
-(`~/.claude/skills/askdiff/SKILL.md`). If the file is there but still
-missing from the picker, restart Claude Code or run `/reload-plugins`.
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev loop, architecture,
-and the in-repo `/askdiff-dev` skill.
+- Hitting a bug? See [SUPPORT.md](./SUPPORT.md) for common issues and
+  how to file a useful report.
+- Hacking on askdiff? See [CONTRIBUTING.md](./CONTRIBUTING.md) for the
+  dev loop, architecture, and the in-repo `/askdiff-dev` skill.
 
 ## Star History
 

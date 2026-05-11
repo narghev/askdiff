@@ -59,6 +59,24 @@ pnpm run build
 node packages/cli/dist/index.js --port 7838
 ```
 
+## Configuration
+
+The skill resolves everything for the normal `/askdiff` flow, so users
+shouldn't ever need to set these. They exist for power use, debugging,
+and running the CLI directly outside a Claude Code session.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `7837` | Auto-bumps if taken. |
+| `ASKDIFF_SESSION_ID` | (resolved from `$PPID`) | Force a specific Claude Code session UUID. |
+| `ASKDIFF_PROJECT_CWD` | (parent CC manifest, then `process.cwd()`) | Project directory to diff. |
+| `ASKDIFF_MODEL` | (inherits resumed session's model) | Override the Claude model for asks. |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores `sessions/`, `projects/`. |
+| `ASKDIFF_SKIP_UPDATE_CHECK` | unset | Set to `1` to suppress the post-launch npm version check. |
+
+CLI flags also work (`askdiff --port 7838 --no-open --session <uuid>`);
+run `askdiff --help` for the full list.
+
 ## Tests and lint
 
 ```bash
