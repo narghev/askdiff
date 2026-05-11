@@ -12,7 +12,8 @@ answer streams back inline — and because each ask resumes the same
 Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
-![askdiff demo](https://raw.githubusercontent.com/narghev/askdiff/main/assets/output.gif)
+![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
+![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
 
 ## Quickstart
 
@@ -30,8 +31,8 @@ npx -y askdiff install-skill --global
 
 ```
 /askdiff                                                                # working-tree changes
-/askdiff last commit                                                    # HEAD~1..HEAD
-/askdiff main vs feature/x                                              # main…HEAD (PR-style)
+/askdiff last commit attached to the same session that wrote it         # HEAD~1..HEAD
+/askdiff main vs feature/x to a session where we investigated the bug   # main…HEAD (PR-style)
 /askdiff David's latest commit where he removed the xmpp integration    # author + content search
 /askdiff last commit attached to the session where we discussed auth    # send asks to a different past session
 ```
