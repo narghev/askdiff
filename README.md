@@ -14,6 +14,8 @@ the file, the conversation, and why it made the change.
 
 ![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
 
+> Asking about a past commit's diff in the session that wrote it.
+
 ## Why askdiff?
 
 Developers often prompt AIs to write the code, then, if the diff becomes large enough, open draft GitHub PRs in order to review it better.
@@ -45,15 +47,15 @@ That's it. No API key, no config. The browser opens to a syntax-highlighted diff
 
 ## Use cases
 
-### Review the working directory
+### Review a past commit in the session that wrote it
+
+The hero demo above shows this case: `/askdiff` with a natural-language description of the diff and session finds the right git invocation, captures the output, and points the server at it. Asks flow into that past session, so the model already wrote (or investigated) the code you're asking about — even if you're currently in a different session.
+
+### Review code as you're writing it
 
 `/askdiff` with no description shows the working tree diff — all uncommitted changes. Best used in the same session that made the changes, so it holds the full context of the edits.
 
 ![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
-
-### Review any git diff attached to any session
-
-`/askdiff` with a natural language description of the diff and session finds the right git invocation, captures the output, and points the server at it. Ask questions about any line, and the model answers with full context — even if the diff was written in a different session.
 
 ## How it works
 
@@ -64,7 +66,7 @@ So your question becomes a real turn in the running session's transcript:
   full context that wrote the code; the prompt is just your question.
 - **No Anthropic API key needed.** askdiff doesn't talk to the API —
   it shells out to the `claude` CLI you've already auth'd via
-  subscription or whatever.
+  subscription or API key.
 - **Auto-cleanup.** The server self-exits after 5 minutes of
   inactivity — close the browser tab and forget about it.
 
