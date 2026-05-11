@@ -149,7 +149,9 @@ follow-up without losing context.
 ## Configuration
 
 All optional. Set as env vars before running `npx -y askdiff` — or
-let the skill resolve them automatically.
+let the skill resolve them automatically. CLI flags also work
+(`askdiff --port 7838 --no-open --session <uuid>`); run `askdiff --help`
+for the full list.
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -159,75 +161,18 @@ let the skill resolve them automatically.
 | `ASKDIFF_MODEL` | (inherits resumed session's model) | Override the Claude model for asks. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores `sessions/`, `projects/`. |
 
-CLI flags also work (`askdiff --port 7838 --no-open --session <uuid>`).
-Run `askdiff --help` for the full list.
-
 ## Updates
 
-The skill asynchronously hits the npm registry after launching askdiff. If a newer version is available, you'll see a passive notice
-*after* the launch with the upgrade command pre-formatted:
-
-```
-── A new version of askdiff is available ──
-  installed: 0.3.0
-  latest:    0.3.1
-  to update: npx -y askdiff@latest install-skill --force
-             (add --global if you installed user-level)
-```
-
-You're free to ignore it — the version you have is still working in
-front of you. When you do want to upgrade, run the printed command at
-the same scope you installed:
+After launching, the skill asynchronously checks npm for a newer
+version and prints a passive upgrade notice if one exists. Run the
+printed command at the same scope you originally installed:
 
 ```bash
-# project-local install (the default)
-npx -y askdiff@latest install-skill --force
-
-# user-level install
-npx -y askdiff@latest install-skill --global --force
+npx -y askdiff@latest install-skill --force            # project-local
+npx -y askdiff@latest install-skill --global --force   # user-level
 ```
 
-The first subsequent `/askdiff` runs the upgraded CLI. Set
-`ASKDIFF_SKIP_UPDATE_CHECK=1` to suppress the network call entirely.
-
-## Skills shipped
-
-`install-skill` writes one file: `<git-root>/.claude/skills/askdiff/SKILL.md`
-by default — scoped to the current project. That's the entire surface
-area in your CC config for that repo. The command walks up from `cwd`
-looking for a `.git` directory and refuses (rather than guessing a path)
-if none is found.
-
-```bash
-cd /path/to/your/project           # default install scope
-npx -y askdiff install-skill       # → <git-root>/.claude/skills/askdiff/SKILL.md
-```
-
-To install user-level instead — making `/askdiff` available from any
-Claude Code session you start — pass `--global`:
-
-```bash
-npx -y askdiff install-skill --global
-# → ~/.claude/skills/askdiff/SKILL.md
-```
-
-Project skills override same-named user skills, so it's safe to have
-both: a global install for general use, plus a project install pinning
-this repo to a specific askdiff version.
-
-> **Upgrading from `0.2.x`?** The old version installed user-level by
-> default. To preserve that behavior on upgrade, run
-> `npx -y askdiff@latest install-skill --global --force`. Otherwise the
-> upgrade will install project-locally and leave your old user-level
-> skill stale.
-
-In this repo (for contributors) there is one more:
-
-- `/askdiff-dev` — local Vite dev server with HMR + tsx-run WS server.
-  Use when editing `packages/server` or `packages/ui-browser`. Re-invoking
-  `/askdiff-dev` (or `/askdiff`) from the same session kills the previous
-  server, reuses its port, and points at a freshly-written diff — that's
-  the refresh path. The WS server idle-shuts after 5 min with no clients.
+Set `ASKDIFF_SKIP_UPDATE_CHECK=1` to suppress the network call.
 
 ## Uninstalling
 
@@ -235,59 +180,13 @@ Uninstall is a single `rm` — there's intentionally no `uninstall-skill`
 command. Delete whichever scope you installed:
 
 ```bash
-# project-local install (the default)
-rm -rf <git-root>/.claude/skills/askdiff
-
-# user-level install (--global)
-rm -rf ~/.claude/skills/askdiff
+rm -rf <git-root>/.claude/skills/askdiff   # project-local (the default)
+rm -rf ~/.claude/skills/askdiff            # user-level (--global)
 ```
 
-It's safe to `rm -rf` the whole `skills/askdiff/` directory — askdiff
-keeps no other state under `~/.claude` or your project. Anything left
-in `/tmp/askdiff*` is session-scoped scratch and clears itself out
-within the WS server's idle-shutdown window.
-
-## Architecture
-
-The npm package (`packages/cli`) is a single esbuild-bundled Node
-binary that hosts an HTTP server (serving the prebuilt UI bundle in
-`dist/ui/`) and a WebSocket on the same port at `/ws`. The CLI
-imports `startServer` from `@askdiff/server`, which spawns
-`claude --resume` per ask and forwards `text_delta` events to the
-client. The browser UI (`packages/ui-browser`) is React 19 + Vite +
-Tailwind v4 + zustand, with `react-diff-view` for rendering and
-refractor for syntax highlighting.
-
-## Development
-
-```bash
-git clone https://github.com/narghev/askdiff
-cd askdiff
-pnpm install
-pnpm test
-pnpm lint
-pnpm run build
-```
-
-From a Claude Code session in this repo:
-
-```
-/askdiff-dev                    # first launch: Vite + WS server with HMR
-/askdiff-dev                    # again: kills the WS server, restarts on same port with a fresh diff
-/askdiff-dev last commit        # description-driven: HEAD~1..HEAD
-```
-
-The WS server idle-shuts after 5 min with no connected clients; Vite is
-intentionally persistent (HMR is the whole point). Kill Vite via
-Activity Monitor or `pkill -f 'ui-browser.*vite'` on the rare occasion
-you want it gone.
-
-To exercise the production-shaped binary locally:
-
-```bash
-pnpm run build
-node packages/cli/dist/index.js --port 7838
-```
+askdiff keeps no other state under `~/.claude` or your project.
+Anything left in `/tmp/askdiff*` is session-scoped scratch and clears
+itself out within the WS server's idle-shutdown window.
 
 ## Troubleshooting
 
@@ -315,6 +214,11 @@ Run `npx -y askdiff install-skill` from inside the project (writes
 `npx -y askdiff install-skill --global` to install user-level
 (`~/.claude/skills/askdiff/SKILL.md`). If the file is there but still
 missing from the picker, restart Claude Code or run `/reload-plugins`.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev loop, architecture,
+and the in-repo `/askdiff-dev` skill.
 
 ## Star History
 
