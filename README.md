@@ -12,7 +12,14 @@ answer streams back inline — and because each ask resumes the same
 Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
-![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
+![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
+
+## Why askdiff?
+
+Developers often prompt AIs to write the code, then, if the diff becomes large enough, open draft GitHub PRs in order to review it better.
+Then, if there are any questions, take the diff back to the terminal, ask questions about it, and repeat.
+
+**Askdiff** simplifies this process by combining the diff viewer and the Q&A interface into one seamless experience, directly integrated with the very same Claude Code session that wrote the code. It makes you treat the model truly as a coworker who already knows the entire context and the reasoning behind every single line of the diff.
 
 ## Quickstart
 
@@ -30,32 +37,23 @@ npx -y askdiff install-skill --global
 
 ```
 /askdiff                                                                # working-tree changes
-/askdiff last commit attached to the same session that wrote it         # HEAD~1..HEAD
-/askdiff main vs feature/x to a session where we investigated the bug   # main…HEAD (PR-style)
 /askdiff David's latest commit where he removed the xmpp integration    # author + content search
 /askdiff last commit attached to the session where we discussed auth    # send asks to a different past session
 ```
 
 That's it. No API key, no config. The browser opens to a syntax-highlighted diff; comments stream back as the model thinks.
 
-## Usecases
+## Use cases
 
 ### Review the working directory
 
 `/askdiff` with no description shows the working tree diff — all uncommitted changes. Best used in the same session that made the changes, so it holds the full context of the edits.
 
+![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
+
 ### Review any git diff attached to any session
 
 `/askdiff` with a natural language description of the diff and session finds the right git invocation, captures the output, and points the server at it. Ask questions about any line, and the model answers with full context — even if the diff was written in a different session.
-
-![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
-
-## Why askdiff?
-
-Developers often prompt AIs to write the code, then, if the diff becomes large enough, open draft GitHub PRs in order to review it better.
-Then, if there are any questions, take the diff back to the terminal, ask questions about it, and repeat.
-
-**Askdiff** simplifies this process by combining the diff viewer and the Q&A interface into one seamless experience, directly integrated with the very same Claude Code session that wrote the code. It makes you treat the model truly as a coworker who already knows the entire context and the reasoning behind every single line of the diff.
 
 ## How it works
 
@@ -67,33 +65,10 @@ So your question becomes a real turn in the running session's transcript:
 - **No Anthropic API key needed.** askdiff doesn't talk to the API —
   it shells out to the `claude` CLI you've already auth'd via
   subscription or whatever.
-- **No process cleanup.** The server self-exits after 5 minutes of
+- **Auto-cleanup.** The server self-exits after 5 minutes of
   inactivity — close the browser tab and forget about it.
 
-## Features
-
-<table>
-  <tr>
-    <td><a href="#diff-selection">Diff selection</a></td>
-    <td>Describe which diff to review in plain English — working tree, last commit, branch comparisons, arbitrary refs.</td>
-  </tr>
-  <tr>
-    <td><a href="#session-selection">Session selection</a></td>
-    <td>By default asks flow into the invoking session. Add "in our session about X" or "session &lt;uuid&gt;" to attach to a different past session — the one that originally wrote the code, for example.</td>
-  </tr>
-  <tr>
-    <td><a href="#inline-comments">Inline comments</a></td>
-    <td>Click the <code>+</code> gutter button to comment on any line. Drag to comment on a range.</td>
-  </tr>
-  <tr>
-    <td><a href="#streaming-answers">Streaming answers</a></td>
-    <td>Tokens stream in as Claude generates them — same model context that wrote the code.</td>
-  </tr>
-  <tr>
-    <td><a href="#threaded-discussions">Threaded discussions</a></td>
-    <td>Multiple asks per line, each its own thread, all anchored to the diff.</td>
-  </tr>
-</table>
+## Usage
 
 ### Diff selection
 
@@ -187,7 +162,7 @@ let the skill resolve them automatically.
 CLI flags also work (`askdiff --port 7838 --no-open --session <uuid>`).
 Run `askdiff --help` for the full list.
 
-## Updating
+## Updates
 
 The skill asynchronously hits the npm registry after launching askdiff. If a newer version is available, you'll see a passive notice
 *after* the launch with the upgrade command pre-formatted:
@@ -246,7 +221,15 @@ this repo to a specific askdiff version.
 > upgrade will install project-locally and leave your old user-level
 > skill stale.
 
-### Uninstalling
+In this repo (for contributors) there is one more:
+
+- `/askdiff-dev` — local Vite dev server with HMR + tsx-run WS server.
+  Use when editing `packages/server` or `packages/ui-browser`. Re-invoking
+  `/askdiff-dev` (or `/askdiff`) from the same session kills the previous
+  server, reuses its port, and points at a freshly-written diff — that's
+  the refresh path. The WS server idle-shuts after 5 min with no clients.
+
+## Uninstalling
 
 Uninstall is a single `rm` — there's intentionally no `uninstall-skill`
 command. Delete whichever scope you installed:
@@ -263,14 +246,6 @@ It's safe to `rm -rf` the whole `skills/askdiff/` directory — askdiff
 keeps no other state under `~/.claude` or your project. Anything left
 in `/tmp/askdiff*` is session-scoped scratch and clears itself out
 within the WS server's idle-shutdown window.
-
-In this repo (for contributors) there is one more:
-
-- `/askdiff-dev` — local Vite dev server with HMR + tsx-run WS server.
-  Use when editing `packages/server` or `packages/ui-browser`. Re-invoking
-  `/askdiff-dev` (or `/askdiff`) from the same session kills the previous
-  server, reuses its port, and points at a freshly-written diff — that's
-  the refresh path. The WS server idle-shuts after 5 min with no clients.
 
 ## Architecture
 
