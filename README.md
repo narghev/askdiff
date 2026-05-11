@@ -13,7 +13,6 @@ Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
 ![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
-![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
 
 ## Quickstart
 
@@ -38,6 +37,18 @@ npx -y askdiff install-skill --global
 ```
 
 That's it. No API key, no config. The browser opens to a syntax-highlighted diff; comments stream back as the model thinks.
+
+## Usecases
+
+### Review the working directory
+
+`/askdiff` with no description shows the working tree diff — all uncommitted changes. Best used in the same session that made the changes, so it holds the full context of the edits.
+
+### Review any git diff attached to any session
+
+`/askdiff` with a natural language description of the diff and session finds the right git invocation, captures the output, and points the server at it. Ask questions about any line, and the model answers with full context — even if the diff was written in a different session.
+
+![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
 
 ## Why askdiff?
 
