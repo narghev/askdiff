@@ -12,7 +12,7 @@ answer streams back inline — and because each ask resumes the same
 Claude Code session that wrote the code, the model already remembers
 the file, the conversation, and why it made the change.
 
-![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/nl-descriptors-demo.gif)
+![askdiff demo for natural language descriptors](https://raw.githubusercontent.com/narghev/askdiff/main/assets/nl-descriptors-demo.gif)
 
 > Asking about a past commit's diff in the session that wrote it.
 
@@ -55,7 +55,7 @@ The hero demo above shows this case: `/askdiff` with a natural-language descript
 
 `/askdiff` with no description shows the working tree diff — all uncommitted changes. Best used in the same session that made the changes, so it holds the full context of the edits.
 
-![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/update-readme/assets/working-tree-demo.gif)
+![askdiff demo for the working directory path](https://raw.githubusercontent.com/narghev/askdiff/main/assets/working-tree-demo.gif)
 
 ## How it works
 
